@@ -1,0 +1,45 @@
+version: '3.9'
+services:
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: nucizzz
+      POSTGRES_PASSWORD: change-me
+      POSTGRES_DB: resell
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://nucizzz:change-me@db:5432/resell
+      SHOPIFY_API_KEY: your-api-key
+      SHOPIFY_API_SECRET: your-api-secret
+      SHOPIFY_ACCESS_TOKEN: your-access-token
+      SHOPIFY_STORE_DOMAIN: yourstore.myshopify.com
+      SHOPIFY_LOCATION_ID: your-location-id
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://backend:8000
+    depends_on:
+      - backend
+    environment:
+      VITE_API_BASE_URL: http://backend:8000
+    ports:
+      - "5173:4173"
+
+volumes:
+  postgres_data:
