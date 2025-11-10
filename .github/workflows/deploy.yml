@@ -2,13 +2,12 @@ name: Deploy to VPS
 
 on:
   push:
-    branches: [ "main" ]  # o "master" se usi master
-  workflow_dispatch: {}    # per lanciarlo a mano
+    branches: ["main"]
+  workflow_dispatch: {}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -18,19 +17,28 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
 
-      - name: Copy changed files (rsync)
+      - name: Install rsync
+        run: sudo apt-get update && sudo apt-get install -y rsync
+
+      # Copia codice sul VPS ma NON sovrascrivere .env, volumi, build, ecc.
+      - name: Rsync project to VPS
         run: |
-          sudo apt-get update && sudo apt-get install -y rsync
           rsync -avz --delete \
+            --exclude ".git" \
+            --exclude ".github" \
+            --exclude "node_modules" \
+            --exclude "frontend/node_modules" \
+            --exclude ".env" \
+            --exclude "caddy/data" \
             -e "ssh -o StrictHostKeyChecking=no" \
             ./ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_PATH }}/
 
-      - name: Build & restart containers
+      # Build & restart
+      - name: Build and restart via SSH
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
             set -e
             cd ${{ secrets.VPS_PATH }}
-            docker compose pull || true
             docker compose build --no-cache
             docker compose up -d
             docker system prune -f
