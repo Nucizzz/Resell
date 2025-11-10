@@ -1,189 +1,86 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import { fetchInventory, scanInbound, scanOutbound } from './api';
-import { ScannerInput } from './components/ScannerInput';
-import { ProductTable } from './components/ProductTable';
-import type { Product, ProductFormValues } from './types';
+import React, { useState } from 'react'
+import Scanner from './components/Scanner'
+import { api } from './api'
 
-function App() {
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState<ProductFormValues>({
-    sku: '',
-    barcode: '',
-    name: '',
-    brand: '',
-    size: '',
-    colorway: '',
-    condition: 'new',
-    cost_price: '',
-    sale_price: '',
-  });
-  const [outboundBarcode, setOutboundBarcode] = useState('');
-  const [formError, setFormError] = useState<string | null>(null);
-  const [outboundError, setOutboundError] = useState<string | null>(null);
+function Receive() {
+  const [form, setForm] = useState({ barcode: '', title: '', size: '', price_eur: 0 })
+  const [msg, setMsg] = useState<string | null>(null)
 
-  const inventoryQuery = useQuery<Product[]>({
-    queryKey: ['inventory'],
-    queryFn: fetchInventory,
-  });
-
-  const inboundMutation = useMutation({
-    mutationFn: scanInbound,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      setForm({
-        sku: '',
-        barcode: '',
-        name: '',
-        brand: '',
-        size: '',
-        colorway: '',
-        condition: 'new',
-        cost_price: '',
-        sale_price: '',
-      });
-    },
-  });
-
-  const outboundMutation = useMutation({
-    mutationFn: scanOutbound,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      setOutboundBarcode('');
-    },
-  });
-
-  const handleInboundSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!form.barcode || !form.sku || !form.name) {
-      setFormError('Inserisci almeno barcode, SKU e nome prodotto.');
-      return;
-    }
-    setFormError(null);
-    inboundMutation.mutate(form);
-  };
-
-  const handleOutboundSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!outboundBarcode) {
-      setOutboundError('Scansiona o inserisci un barcode valido.');
-      return;
-    }
-    setOutboundError(null);
-    outboundMutation.mutate(outboundBarcode);
-  };
+  async function submit() {
+    const res = await api.post('/products/receive', form)
+    setMsg('Prodotto salvato e sincronizzato su Shopify: #' + res.data.id)
+  }
 
   return (
-    <div className="app-shell">
-      <header>
-        <div>
-          <h1>Nucizzz Inventory Control</h1>
-          <p>Scanner-friendly gestionale for sneakers & streetwear reselling.</p>
-        </div>
-      </header>
-
-      <div className="grid">
-        <section className="card">
-          <h2>Inbound Scan</h2>
-          <p>Compila i campi oppure scansiona direttamente il barcode nel relativo input.</p>
-          <form className="grid" onSubmit={handleInboundSubmit} style={{ gridTemplateColumns: '1fr' }}>
-            <ScannerInput
-              label="Barcode"
-              value={form.barcode}
-              onChange={(value) => setForm((prev) => ({ ...prev, barcode: value }))}
-            />
-            <ScannerInput
-              label="SKU interno"
-              value={form.sku}
-              onChange={(value) => setForm((prev) => ({ ...prev, sku: value }))}
-            />
-            <ScannerInput
-              label="Nome prodotto"
-              value={form.name}
-              onChange={(value) => setForm((prev) => ({ ...prev, name: value }))}
-            />
-            <ScannerInput
-              label="Brand"
-              value={form.brand}
-              onChange={(value) => setForm((prev) => ({ ...prev, brand: value }))}
-            />
-            <ScannerInput
-              label="Taglia"
-              value={form.size}
-              onChange={(value) => setForm((prev) => ({ ...prev, size: value }))}
-            />
-            <ScannerInput
-              label="Colorway"
-              value={form.colorway}
-              onChange={(value) => setForm((prev) => ({ ...prev, colorway: value }))}
-            />
-            <label>
-              Condizione
-              <select
-                value={form.condition}
-                onChange={(event) => setForm((prev) => ({ ...prev, condition: event.target.value }))}
-              >
-                <option value="new">Deadstock</option>
-                <option value="used">Used</option>
-              </select>
-            </label>
-            <ScannerInput
-              label="Prezzo di acquisto"
-              value={form.cost_price}
-              onChange={(value) => setForm((prev) => ({ ...prev, cost_price: value }))}
-              type="number"
-            />
-            <ScannerInput
-              label="Prezzo di vendita"
-              value={form.sale_price}
-              onChange={(value) => setForm((prev) => ({ ...prev, sale_price: value }))}
-              type="number"
-            />
-            <button className="primary" type="submit" disabled={inboundMutation.isPending}>
-              {inboundMutation.isPending ? 'Invio...' : 'Registra e pubblica su Shopify'}
-            </button>
-            {(formError || inboundMutation.isError) && (
-              <p style={{ color: '#b91c1c' }}>
-                {formError ?? (inboundMutation.error as Error).message}
-              </p>
-            )}
-            {inboundMutation.isSuccess && <p style={{ color: '#15803d' }}>Prodotto pubblicato!</p>}
-          </form>
-        </section>
-
-        <section className="card">
-          <h2>Outbound Scan</h2>
-          <p>Scansiona il barcode del prodotto venduto per chiudere l&apos;ordine.</p>
-          <form onSubmit={handleOutboundSubmit}>
-            <ScannerInput
-              label="Barcode"
-              value={outboundBarcode}
-              onChange={setOutboundBarcode}
-            />
-            <button className="primary" type="submit" disabled={outboundMutation.isPending}>
-              {outboundMutation.isPending ? 'Aggiorno...' : 'Segna come venduto'}
-            </button>
-            {(outboundError || outboundMutation.isError) && (
-              <p style={{ color: '#b91c1c' }}>
-                {outboundError ?? (outboundMutation.error as Error).message}
-              </p>
-            )}
-            {outboundMutation.isSuccess && <p style={{ color: '#15803d' }}>Inventario aggiornato.</p>}
-          </form>
-        </section>
+    <div className="card space-y-3">
+      <h2 className="text-xl font-semibold">Ricezione merce</h2>
+      <Scanner onDetected={(code) => setForm(f => ({ ...f, barcode: code }))} />
+      <div className="grid gap-2">
+        <input className="input" placeholder="Barcode" value={form.barcode} onChange={e => setForm({ ...form, barcode: e.target.value })} />
+        <input className="input" placeholder="Titolo" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
+        <input className="input" placeholder="Taglia" value={form.size} onChange={e => setForm({ ...form, size: e.target.value })} />
+        <input className="input" placeholder="Prezzo EUR" type="number" step="0.01" value={form.price_eur} onChange={e => setForm({ ...form, price_eur: parseFloat(e.target.value) })} />
       </div>
-
-      <section className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2>Inventario</h2>
-          <button className="secondary" onClick={() => queryClient.invalidateQueries({ queryKey: ['inventory'] })}>
-            Aggiorna
-          </button>
-        </div>
-        <ProductTable products={inventoryQuery.data ?? []} isLoading={inventoryQuery.isLoading} />
-      </section>
+      <button className="btn bg-black text-white" onClick={submit}>Salva & Sincronizza</button>
+      {msg && <p className="text-green-600">{msg}</p>}
     </div>
-  );
+  )
 }
 
-export default App;
+function Sell() {
+  const [barcode, setBarcode] = useState('')
+  const [msg, setMsg] = useState<string | null>(null)
+  async function sell() {
+    const res = await api.post('/products/sell', { barcode })
+    setMsg('Venduto: ' + res.data.title + ' — stock Shopify aggiornato.')
+  }
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-xl font-semibold">Vendita</h2>
+      <Scanner onDetected={(code) => setBarcode(code)} />
+      <input className="input" placeholder="Barcode" value={barcode} onChange={e => setBarcode(e.target.value)} />
+      <button className="btn bg-black text-white" onClick={sell}>Vendi</button>
+      {msg && <p className="text-green-600">{msg}</p>}
+    </div>
+  )
+}
+
+function Setup() {
+  const [shop, setShop] = useState('')
+  const [token, setToken] = useState('')
+  const [location, setLocation] = useState('')
+
+  async function testSave() {
+    const res = await api.post('/shopify/setup', { shop, access_token: token, location_id: location || null })
+    setLocation(res.data.location_id)
+    alert('OK! Location ID: ' + res.data.location_id + '\nInseriscilo nel file .env come SHOPIFY_LOCATION_ID e riavvia lo stack.')
+  }
+
+  return (
+    <div className="card space-y-3">
+      <h2 className="text-xl font-semibold">Setup Shopify</h2>
+      <input className="input" placeholder="shop.myshopify.com" value={shop} onChange={e => setShop(e.target.value)} />
+      <input className="input" placeholder="Admin API access token" value={token} onChange={e => setToken(e.target.value)} />
+      <input className="input" placeholder="Location ID (opz.)" value={location} onChange={e => setLocation(e.target.value)} />
+      <button className="btn bg-black text-white" onClick={testSave}>Test & Save</button>
+      <p className="text-sm text-gray-600">Dopo il test, copia SHOPIFY_SHOP, SHOPIFY_ACCESS_TOKEN e SHOPIFY_LOCATION_ID in .env e riavvia.</p>
+    </div>
+  )
+}
+
+export default function App() {
+  const [tab, setTab] = useState<'receive'|'sell'|'setup'>('receive')
+  return (
+    <div className="max-w-2xl mx-auto p-4 space-y-4">
+      <h1 className="text-2xl font-bold">Nucizzz IMS</h1>
+      <div className="flex gap-2">
+        <button className={`btn ${tab==='receive'?'bg-black text-white':'bg-gray-100'}`} onClick={()=>setTab('receive')}>Ricezione</button>
+        <button className={`btn ${tab==='sell'?'bg-black text-white':'bg-gray-100'}`} onClick={()=>setTab('sell')}>Vendita</button>
+        <button className={`btn ${tab==='setup'?'bg-black text-white':'bg-gray-100'}`} onClick={()=>setTab('setup')}>Setup</button>
+      </div>
+      {tab==='receive' && <Receive />}
+      {tab==='sell' && <Sell />}
+      {tab==='setup' && <Setup />}
+    </div>
+  )
+}

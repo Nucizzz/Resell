@@ -1,16 +1,10 @@
-FROM node:20-alpine AS build
-ARG VITE_API_BASE_URL=/api
-ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+FROM node:20-alpine
+
 WORKDIR /app
-COPY package.json ./
-RUN npm install --legacy-peer-deps || npm install --legacy-peer-deps
+COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
+RUN npm install
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine AS runner
-WORKDIR /app
-COPY --from=build /app/dist ./dist
-RUN npm install -g serve
-EXPOSE 4173
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL:-/api}
-CMD ["serve", "-s", "dist", "-l", "4173"]
+EXPOSE 5173
+CMD ["npm", "run", "preview"]
