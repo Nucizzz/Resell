@@ -26,7 +26,8 @@ def startup():
 @app.get("/health")
 def health(): return {"ok":True}
 
-app.mount(f"{API_BASE}/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+app.mount(f"{API_BASE}/uploads", StaticFiles(directory=UPLOAD_DIR, check_dir=False), name="uploads")
+
 
 def to_out(p:Product)->ProductOut:
     return ProductOut(

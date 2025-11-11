@@ -39,3 +39,21 @@ App (frontend proxy + API): https://app.nucizzz.shop
 Swagger API: https://app.nucizzz.shop/api/docs
 
 (Se usi Adminer, impostalo per stare su 127.0.0.1:8080 nel docker-compose.yml per non esporlo pubblicamente.)
+
+
+
+
+
+
+
+
+ssh root@84.46.245.46
+psswd:Sharkshopify1
+ssh deploy@84.46.245.46
+psswd:Sharkshopify1
+cd /opt/nucizzz-ims
+chown -R deploy:deploy /opt/nucizzz-ims
+
+
+DA POWERSHELL:
+cd C:\Users\jnuci\OneDrive\Documenti\GitHub\Resell\nucizzz-ims
