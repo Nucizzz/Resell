@@ -1,8 +1,5 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-.btn{@apply px-4 py-2 rounded-xl shadow text-white bg-black}
-.card{@apply p-4 rounded-2xl shadow bg-white}
-.input{@apply border rounded-lg px-3 py-2 w-full}
-.select{@apply border rounded-lg px-3 py-2 w-full bg-white}
-.badge{@apply inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100}
+
+body { @apply bg-gray-50 text-gray-900; }

@@ -1,0 +1,46 @@
+import React, { useEffect, useState } from 'react'
+import { api } from '../lib/api'
+
+type Product = {
+  id: number; name: string; sku: string; brand?:string|null; category?:string|null;
+  size?:string|null; price:number; cost?:number|null; quantity:number; sold_count:number;
+  description?:string|null; image_url?:string|null; active:boolean
+}
+
+export const InventoryPage: React.FC = () => {
+  const [q, setQ] = useState('')
+  const [items, setItems] = useState<Product[]>([])
+
+  const load = async () => {
+    const { data } = await api.get('/products', { params: { q }})
+    setItems(data)
+  }
+  useEffect(()=>{ load() }, [])
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-3">
+        <input className="border rounded px-2 py-1 flex-1" placeholder="Cerca per nome, barcode, brand, categoria" value={q} onChange={e=>setQ(e.target.value)} />
+        <button className="px-3 py-1 rounded bg-black text-white" onClick={load}>Cerca</button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {items.map(p => (
+          <div key={p.id} className="bg-white rounded-xl shadow p-3 flex gap-3">
+            <img src={p.image_url || 'https://via.placeholder.com/80'} alt={p.name} className="w-20 h-20 object-cover rounded-lg" />
+            <div className="flex-1">
+              <div className="font-semibold">{p.name}</div>
+              <div className="text-sm text-gray-600">SKU/Barcode: {p.sku}</div>
+              <div className="text-sm text-gray-600">{p.brand} {p.size} — {p.category}</div>
+              <div className="mt-1 flex items-center gap-3">
+                <span className="font-bold">€ {p.price.toFixed(2)}</span>
+                <span className="text-sm">Q.ty {p.quantity}</span>
+                <span className="text-sm">Venduti {p.sold_count}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
