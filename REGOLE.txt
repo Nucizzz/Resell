@@ -1,0 +1,52 @@
+cd ~
+cd /opt/nucizzz-ims 2>/dev/null && docker compose down -v || true
+cd /opt
+sudo rm -rf /opt/nucizzz-ims
+mkdir -p /home/deploy/nucizzz-ims
+
+
+POWERSHELL
+cd C:\Users\jnuci\OneDrive\Documenti\GitHub\Resell\nucizzz-ims
+
+tar.exe -czvf project.tgz `
+  --exclude='.git' `
+  --exclude='**/node_modules' `
+  --exclude='**/.venv' `
+  --exclude='**/dist' `
+  --exclude='**/.pytest_cache' `
+  --exclude='**/__pycache__' `
+  *
+
+scp C:\Users\jnuci\OneDrive\Documenti\GitHub\Resell\nucizzz-ims\project.tgz `
+    deploy@84.46.245.46:/home/deploy/
+
+
+ssh root@84.46.245.46
+psswd:Sharkshopify1
+ssh deploy@84.46.245.46
+psswd:Sharkshopify1
+
+sudo tar -xzvf ~/project.tgz -C /opt/nucizzz-ims
+sudo chown -R deploy:deploy /opt/nucizzz-ims
+
+cd /opt/nucizzz-ims
+ls -la 
+
+
+docker compose down -v
+docker system prune -af
+docker volume prune -f
+
+# sali i servizi
+docker compose up -d db
+# aspetta che il DB diventi healthy:
+docker compose ps
+
+# poi tutto il resto
+docker compose up -d --build
+
+
+
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f caddy
