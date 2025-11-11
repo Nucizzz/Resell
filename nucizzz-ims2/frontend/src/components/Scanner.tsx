@@ -11,6 +11,8 @@ function isValidRetailCode(raw: string): boolean {
   const code = (raw || "").replace(/\D/g, "");
   if (!code) return false;
   if (![8, 12, 13].includes(code.length)) return false;
+
+  // EAN-13
   if (code.length === 13) {
     const d = code.split("").map((n) => parseInt(n));
     const sum = d
@@ -19,6 +21,8 @@ function isValidRetailCode(raw: string): boolean {
     const chk = (10 - (sum % 10)) % 10;
     return chk === d[12];
   }
+
+  // UPC-A (12) – promuovo a EAN-13 con leading 0
   if (code.length === 12) {
     const d = ("0" + code).split("").map((n) => parseInt(n));
     const sum = d
@@ -27,6 +31,8 @@ function isValidRetailCode(raw: string): boolean {
     const chk = (10 - (sum % 10)) % 10;
     return chk === d[12];
   }
+
+  // EAN-8
   if (code.length === 8) {
     const d = code.split("").map((n) => parseInt(n));
     const sum = d
@@ -35,6 +41,7 @@ function isValidRetailCode(raw: string): boolean {
     const chk = (10 - (sum % 10)) % 10;
     return chk === d[7];
   }
+
   return false;
 }
 
@@ -98,7 +105,7 @@ export default function Scanner({ onDetected }: Props) {
 
   return (
     <div className="card space-y-2">
-      <video ref={videoRef} className="w-full rounded-xl" />
+      <video ref={videoRef} className="w-full rounded-xl" playsInline muted />
       {!running && !error && (
         <p className="text-sm text-gray-600">
           Consenti la fotocamera e inquadra il barcode (EAN/UPC).
