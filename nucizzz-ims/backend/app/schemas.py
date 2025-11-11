@@ -1,43 +1,91 @@
 from pydantic import BaseModel
+from typing import Optional
 
 class ProductCreate(BaseModel):
     barcode: str
     title: str
-    size: str
-    price_eur: float
+    description: Optional[str] = None
+    brand: Optional[str] = None
+    model: Optional[str] = None
+    colorway: Optional[str] = None
+    category: Optional[str] = "sneakers"
+    tags: Optional[str] = None
+    size: Optional[str] = None
+    condition: Optional[str] = "new"
+    sku: Optional[str] = None
+    cost_eur: float = 0
+    price_eur: float = 0
+    weight_grams: Optional[int] = None
+    package_required: bool = False
+    image_url: Optional[str] = None
+    quantity: int = 1
+    location_id: Optional[int] = None
+
+class ProductUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    brand: Optional[str] = None
+    model: Optional[str] = None
+    colorway: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    size: Optional[str] = None
+    condition: Optional[str] = None
+    sku: Optional[str] = None
+    cost_eur: Optional[float] = None
+    price_eur: Optional[float] = None
+    weight_grams: Optional[int] = None
+    package_required: Optional[bool] = None
+    image_url: Optional[str] = None
+    quantity: Optional[int] = None
+    location_id: Optional[int] = None
+    available: Optional[bool] = None
 
 class ProductOut(BaseModel):
     id: int
     barcode: str
     title: str
-    size: str
+    description: Optional[str]
+    brand: Optional[str]
+    model: Optional[str]
+    colorway: Optional[str]
+    category: Optional[str]
+    tags: Optional[str]
+    size: Optional[str]
+    condition: Optional[str]
+    sku: Optional[str]
+    cost_eur: float
     price_eur: float
+    weight_grams: Optional[int]
+    package_required: bool
+    image_url: Optional[str]
+    quantity: int
     available: bool
-    shopify_product_id: str | None = None
-    shopify_variant_id: str | None = None
-    shopify_inventory_item_id: str | None = None
-
-    @classmethod
-    def from_orm(cls, obj):
-        return cls(
-            id=obj.id,
-            barcode=obj.barcode,
-            title=obj.title,
-            size=obj.size,
-            price_eur=obj.price_cents / 100.0,
-            available=obj.available,
-            shopify_product_id=obj.shopify_product_id,
-            shopify_variant_id=obj.shopify_variant_id,
-            shopify_inventory_item_id=obj.shopify_inventory_item_id,
-        )
+    location_id: Optional[int]
 
 class SellRequest(BaseModel):
     barcode: str
+    quantity: int = 1
 
-class ShopifySetupRequest(BaseModel):
-    shop: str
-    access_token: str
-    location_id: str | None = None
+class TransferRequest(BaseModel):
+    barcode: str
+    to_location_id: int
+    quantity: int = 1
 
-class ShopifySetupOut(BaseModel):
-    location_id: str
+class LocationCreate(BaseModel):
+    name: str
+
+class LocationOut(BaseModel):
+    id: int
+    name: str
+
+class LookupOut(BaseModel):
+    barcode: str
+    title: Optional[str]=None
+    brand: Optional[str]=None
+    model: Optional[str]=None
+    colorway: Optional[str]=None
+    category: Optional[str]=None
+    image_url: Optional[str]=None
+    description: Optional[str]=None
+    sku: Optional[str]=None

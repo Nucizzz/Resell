@@ -1,104 +1,114 @@
 import React, { useEffect, useRef, useState } from "react";
-import Quagga from "@ericblade/quagga2";
+import {
+  BrowserMultiFormatReader,
+  BarcodeFormat,
+  DecodeHintType,
+} from "@zxing/library";
 
 type Props = { onDetected: (code: string) => void };
 
-const SCAN_READERS = [
-  "ean_reader", // EAN-13 (retail EU)
-  "ean_8_reader", // EAN-8
-  "upc_reader", // UPC-A (retail US)
-  "upc_e_reader", // UPC-E
-  "code_128_reader", // molto comune su etichette / SKU
-];
+function isValidRetailCode(raw: string): boolean {
+  const code = (raw || "").replace(/\D/g, "");
+  if (!code) return false;
+  if (![8, 12, 13].includes(code.length)) return false;
+
+  // EAN-13
+  if (code.length === 13) {
+    const d = code.split("").map((n) => parseInt(n));
+    const sum = d
+      .slice(0, 12)
+      .reduce((acc, n, i) => acc + n * (i % 2 ? 3 : 1), 0);
+    const chk = (10 - (sum % 10)) % 10;
+    return chk === d[12];
+  }
+
+  // UPC-A (12) – promuovo a EAN-13 con leading 0
+  if (code.length === 12) {
+    const d = ("0" + code).split("").map((n) => parseInt(n));
+    const sum = d
+      .slice(0, 12)
+      .reduce((acc, n, i) => acc + n * (i % 2 ? 3 : 1), 0);
+    const chk = (10 - (sum % 10)) % 10;
+    return chk === d[12];
+  }
+
+  // EAN-8
+  if (code.length === 8) {
+    const d = code.split("").map((n) => parseInt(n));
+    const sum = d
+      .slice(0, 7)
+      .reduce((acc, n, i) => acc + n * (i % 2 ? 3 : 1), 0);
+    const chk = (10 - (sum % 10)) % 10;
+    return chk === d[7];
+  }
+
+  return false;
+}
 
 export default function Scanner({ onDetected }: Props) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [active, setActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-    let mounted = true;
+    const reader = new BrowserMultiFormatReader();
+    const hints = new Map();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.EAN_13,
+      BarcodeFormat.UPC_A,
+      BarcodeFormat.EAN_8,
+      BarcodeFormat.UPC_E,
+    ]);
+    reader.hints = hints;
+    reader.timeBetweenDecodingAttempts = 250;
+
+    let stopped = false;
 
     async function start() {
       try {
-        // chiedi permesso fotocamera (utile su iOS/Android)
-        await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
-        });
-
-        Quagga.init(
-          {
-            inputStream: {
-              type: "LiveStream",
-              target: containerRef.current, // div che conterrà video/canvas
-              constraints: {
-                facingMode: "environment",
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-              },
-            },
-            decoder: {
-              readers: SCAN_READERS as any,
-            },
-            locate: true,
-            numOfWorkers: navigator.hardwareConcurrency
-              ? Math.min(4, navigator.hardwareConcurrency)
-              : 2,
-          },
-          (err: unknown) => {
-            if (!mounted) return;
-            if (err) {
-              console.error(err);
-              setError("Errore inizializzazione scanner");
-              return;
+        const devices = (
+          await navigator.mediaDevices.enumerateDevices()
+        ).filter((d) => d.kind === "videoinput");
+        const back =
+          devices.find((d) => (d.label || "").toLowerCase().includes("back")) ||
+          devices[0];
+        if (!videoRef.current) return;
+        setRunning(true);
+        reader.decodeFromVideoDevice(
+          back?.deviceId,
+          videoRef.current,
+          (result, err) => {
+            if (stopped) return;
+            if (result) {
+              const text = result.getText();
+              if (isValidRetailCode(text)) {
+                onDetected(text.replace(/\D/g, ""));
+                reader.reset();
+                setRunning(false);
+                stopped = true;
+              }
             }
-            Quagga.start();
-            setActive(true);
           }
         );
-
-        const detected = (data: any) => {
-          const code = data?.codeResult?.code;
-          if (code) {
-            onDetected(code);
-            // UX: stoppa dopo una lettura
-            Quagga.stop();
-            setActive(false);
-          }
-        };
-
-        Quagga.onDetected(detected);
-      } catch (e: unknown) {
-        console.error(e);
-        setError(
-          e instanceof Error
-            ? e.message
-            : "Impossibile accedere alla fotocamera"
-        );
+      } catch (e: any) {
+        setError(e?.message || "Errore accesso fotocamera");
       }
     }
-
     start();
 
     return () => {
-      mounted = false;
       try {
-        Quagga.offDetected(() => {});
-        Quagga.stop();
+        reader.reset();
       } catch {}
     };
   }, [onDetected]);
 
   return (
     <div className="card space-y-2">
-      <div
-        ref={containerRef}
-        style={{ width: "100%", minHeight: 320, position: "relative" }}
-      />
-      {!active && !error && (
+      <video ref={videoRef} className="w-full rounded-xl" playsInline muted />
+      {!running && !error && (
         <p className="text-sm text-gray-600">
-          Consenti la fotocamera e inquadra il codice a barre (EAN/UPC/Code128).
+          Consenti la fotocamera e inquadra il barcode (EAN/UPC).
         </p>
       )}
       {error && <p className="text-red-600">{error}</p>}
