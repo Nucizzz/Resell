@@ -53,29 +53,44 @@ cd "C:\Users\jnuci\OneDrive\Documenti\GitHub\Resell\nucizzz-ims"
 
 Compress-Archive -Path * -DestinationPath project.zip -Force
 
-scp project.zip root@84.46.245.46:/opt/
+scp project.zip deploy@84.46.245.46:/home/deploy/
 
-DA ROOT:
-ssh root@84.46.245.46
+
+ssh deploy@84.46.245.46
 PASSWD:Sharkshopify1
 
-rm -rf /opt/nucizzz-ims/*
+# sul VPS come utente "deploy"
+sudo mkdir -p /opt/nucizzz-ims
+sudo chown -R deploy:deploy /opt/nucizzz-ims
 
-cd /opt
-unzip project.zip -d nucizzz-ims
+mv ~/project.zip /opt/nucizzz-ims/
+cd /opt/nucizzz-ims
 
-rm project.zip
+# se unzip non c'è:
+sudo apt-get update && sudo apt-get install -y unzip
+
+unzip -o project.zip
+
+
+# se non hai ancora il file .env nel server:
+cp .env.example .env
+# apri e imposta le variabili necessarie
+nano .env
 
 
 RIAVVIO 
-cd /opt/nucizzz-ims
-docker compose down
+# dentro /opt/nucizzz-ims
+docker compose down -v
+docker system prune -af
+docker volume prune -f
+
 docker compose up -d --build
 
 
+
 VERIFICA 
+docker compose ps
 docker compose logs -f backend
-
 docker compose logs -f frontend
-
 docker compose logs -f caddy
+
