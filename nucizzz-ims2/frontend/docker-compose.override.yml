@@ -1,0 +1,15 @@
+services:
+  backend:
+    ports:
+      - "8000:8000"
+
+  frontend:
+    environment:
+      - VITE_API_BASE=http://localhost:8000/api
+      - VITE_ADMIN_TOKEN=${ADMIN_TOKEN}
+    ports:
+      - "5173:5173"
+
+  # Disattiva Caddy in locale
+  caddy:
+    profiles: ["disabled"]
