@@ -17,7 +17,7 @@ class Product(Base):
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Campi fashion
+    # fashion
     brand: Mapped[str | None] = mapped_column(String(120), nullable=True)
     model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     colorway: Mapped[str | None] = mapped_column(String(120), nullable=True)
