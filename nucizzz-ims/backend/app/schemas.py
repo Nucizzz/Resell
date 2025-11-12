@@ -1,43 +1,62 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Optional, List
+from datetime import datetime
 
-class ProductCreate(BaseModel):
-    barcode: str
-    title: str
-    size: str
-    price_eur: float
+class LocationCreate(BaseModel):
+    name: str
 
-class ProductOut(BaseModel):
+class LocationOut(BaseModel):
     id: int
-    barcode: str
+    name: str
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+class ProductBase(BaseModel):
+    sku: str
+    barcode: Optional[str] = None
     title: str
-    size: str
-    price_eur: float
-    available: bool
-    shopify_product_id: str | None = None
-    shopify_variant_id: str | None = None
-    shopify_inventory_item_id: str | None = None
+    brand: Optional[str] = None
+    description: Optional[str] = None
+    size: Optional[str] = None
+    color: Optional[str] = None
+    weight_grams: Optional[float] = None
+    package_required: Optional[str] = None
+    cost: Optional[float] = None
+    price: Optional[float] = None
+    image_url: Optional[str] = None
+    is_active: Optional[bool] = True
 
-    @classmethod
-    def from_orm(cls, obj):
-        return cls(
-            id=obj.id,
-            barcode=obj.barcode,
-            title=obj.title,
-            size=obj.size,
-            price_eur=obj.price_cents / 100.0,
-            available=obj.available,
-            shopify_product_id=obj.shopify_product_id,
-            shopify_variant_id=obj.shopify_variant_id,
-            shopify_inventory_item_id=obj.shopify_inventory_item_id,
-        )
+class ProductCreate(ProductBase):
+    initial_qty: Optional[int] = 0
+    location_id: Optional[int] = None
 
-class SellRequest(BaseModel):
-    barcode: str
+class ProductOut(ProductBase):
+    id: int
+    created_at: datetime
+    class Config:
+        from_attributes = True
 
-class ShopifySetupRequest(BaseModel):
-    shop: str
-    access_token: str
-    location_id: str | None = None
+class StockOut(BaseModel):
+    location_id: int
+    qty: int
 
-class ShopifySetupOut(BaseModel):
-    location_id: str
+class MovementCreate(BaseModel):
+    product_id: int
+    type: str = Field(pattern="^(in|out|transfer|sell)$")
+    qty_change: int
+    from_location_id: Optional[int] = None
+    to_location_id: Optional[int] = None
+    note: Optional[str] = None
+
+class MovementOut(BaseModel):
+    id: int
+    product_id: int
+    type: str
+    qty_change: int
+    from_location_id: Optional[int]
+    to_location_id: Optional[int]
+    note: Optional[str]
+    created_at: datetime
+    class Config:
+        from_attributes = True

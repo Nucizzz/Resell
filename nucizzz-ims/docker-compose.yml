@@ -1,65 +1,61 @@
+version: "3.9"
+
 services:
   db:
     image: postgres:16
     container_name: ims_db
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - db_data:/var/lib/postgresql/data
+      POSTGRES_USER: ${POSTGRES_USER:-ims}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sharkdrop}
+      POSTGRES_DB: ${POSTGRES_DB:-imsdb}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 20
+    volumes:
+      - ims_pgdata:/var/lib/postgresql/data
+    networks:
+      - ims_net
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
     container_name: ims_backend
     env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      SECRET_KEY: ${SECRET_KEY:-sharkdrop}
+      API_BASE_PATH: ${API_BASE_PATH:-/api}
     depends_on:
-      - db
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      db:
+        condition: service_healthy
+    volumes:
+      - ims_uploads:/app/app/uploads
+    ports:
+      - "8000:8000"
+    networks:
+      - ims_net
 
   frontend:
-    build: ./frontend
+    # il tuo frontend esistente; se hai già un Dockerfile frontend usalo qui.
+    build:
+      context: ./frontend
     container_name: ims_frontend
-    env_file: .env
-    depends_on:
-      - backend
-
-  caddy:
-    image: caddy:2
-    container_name: ims_caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
     environment:
-      - PUBLIC_HOSTNAME=${PUBLIC_HOSTNAME}
-    volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      # Se il tuo api.ts legge VITE_API_BASE, puoi esporlo qui:
+      # VITE_API_BASE: http://localhost:8000/api
+      NODE_ENV: production
     depends_on:
-      - frontend
       - backend
-
-  adminer:
-    image: adminer:4
-    container_name: ims_adminer
-    restart: unless-stopped
     ports:
-      - "8080:8080"
-    depends_on:
-      - db
+      - "5173:5173"
+    networks:
+      - ims_net
 
 volumes:
-  db_data:
-  caddy_data:
-  caddy_config:
+  ims_pgdata:
+  ims_uploads:
+
+networks:
+  ims_net:

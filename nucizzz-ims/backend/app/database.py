@@ -1,12 +1,16 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
-import os
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+from os import getenv
+
+DATABASE_URL = getenv("DATABASE_URL", "postgresql+psycopg://ims:sharkdrop@db:5432/imsdb")
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
 
 def get_db():
     db = SessionLocal()

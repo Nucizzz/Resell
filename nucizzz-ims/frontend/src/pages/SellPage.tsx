@@ -1,100 +1,65 @@
-// frontend/src/pages/SellPage.tsx
 import React, { useState } from "react";
 import { api } from "../api";
-import Scanner from "../components/Scanner";
-import ProductCard, { Product } from "../components/ProductCard";
+import Scanner from "../components/Scanner"; // tuo scanner
 
 export default function SellPage() {
   const [barcode, setBarcode] = useState("");
-  const [found, setFound] = useState<Product | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [product, setProduct] = useState<any>(null);
+  const [msg, setMsg] = useState("");
 
-  async function search() {
-    setMsg(null);
-    setErr(null);
-    setFound(null);
+  async function onDetected(code: string) {
+    setBarcode(code);
     try {
-      const r = await api.get("/products/by-barcode", { params: { barcode } });
-      setFound(r.data || null);
-      if (!r.data) setErr("Prodotto non trovato");
-    } catch (e: any) {
-      setErr(e?.response?.data?.detail || "Errore ricerca");
+      const res = await api.get(
+        `/products/barcode/${encodeURIComponent(code)}`
+      );
+      setProduct(res.data);
+      setMsg("");
+    } catch {
+      setProduct(null);
+      setMsg(
+        "Prodotto non trovato. Puoi aggiungerlo dalla pagina Nuovo prodotto."
+      );
     }
   }
 
-  async function sell() {
-    if (!barcode) return;
-    setMsg(null);
-    setErr(null);
+  async function sellOne() {
+    if (!product) return;
     try {
-      const r = await api.post("/products/sell", { barcode });
-      setMsg(`Venduto: ${r.data?.title ?? barcode}. Stock aggiornato.`);
-      setFound(r.data || null);
+      // supponiamo vendita da LOCATION id=1 (es. Negozio). Puoi renderlo selezionabile.
+      await api.post("/stock/movement", {
+        product_id: product.id,
+        type: "sell",
+        qty_change: 1,
+        from_location_id: 1,
+        to_location_id: null,
+        note: "POS vendita",
+      });
+      setMsg("Venduto 1.");
     } catch (e: any) {
-      setErr(e?.response?.data?.detail || "Errore vendita");
-    }
-  }
-
-  async function remove() {
-    if (!found?.id) return;
-    setMsg(null);
-    setErr(null);
-    try {
-      await api.delete(`/products/${found.id}`);
-      setMsg(`Eliminato: #${found.id}`);
-      setFound(null);
-      setBarcode("");
-    } catch (e: any) {
-      setErr(e?.response?.data?.detail || "Errore eliminazione");
+      setMsg(e?.response?.data?.detail || "Errore vendita");
     }
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Vendita / Uscita</h2>
+    <div className="p-4 space-y-3">
+      <h1 className="text-xl font-semibold">Vendi</h1>
+      <Scanner onDetected={onDetected} />
+      <div className="text-sm text-gray-600">Barcode: {barcode || "-"}</div>
 
-      <Scanner
-        onDetected={(code) => {
-          setBarcode(code);
-          search();
-        }}
-        onError={setErr}
-      />
-
-      <div className="flex gap-2">
-        <input
-          className="input flex-1"
-          placeholder="Barcode"
-          value={barcode}
-          onChange={(e) => setBarcode(e.target.value)}
-        />
-        <button className="btn bg-gray-100" onClick={search}>
-          Cerca
-        </button>
-      </div>
-
-      {found && <ProductCard p={found} />}
-
-      <div className="flex gap-2">
-        <button
-          className="btn bg-black text-white"
-          onClick={sell}
-          disabled={!barcode}
-        >
-          Segna come VENDUTO
-        </button>
-        <button
-          className="btn bg-red-600 text-white"
-          onClick={remove}
-          disabled={!found}
-        >
-          Elimina
-        </button>
-      </div>
-
-      {msg && <p className="text-green-600">{msg}</p>}
-      {err && <p className="text-red-600">{err}</p>}
+      {product ? (
+        <div className="card">
+          <div className="font-medium">{product.title}</div>
+          <div className="text-sm text-gray-600">
+            SKU {product.sku} • {product.brand}
+          </div>
+          <button className="btn mt-2" onClick={sellOne}>
+            Vendi 1
+          </button>
+        </div>
+      ) : (
+        <div className="text-sm">{msg}</div>
+      )}
     </div>
   );
 }

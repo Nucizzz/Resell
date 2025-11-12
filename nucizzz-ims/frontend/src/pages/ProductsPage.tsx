@@ -1,96 +1,68 @@
-// frontend/src/pages/ProductsPage.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import { api } from "../api";
-import ProductCard, { Product } from "../components/ProductCard";
+import React, { useEffect, useState } from "react";
+import { api } from "../api"; // usa il tuo helper esistente
+
+type Product = {
+  id: number;
+  sku: string;
+  barcode?: string;
+  title: string;
+  brand?: string;
+  price?: number;
+  image_url?: string;
+};
 
 export default function ProductsPage() {
-  const [all, setAll] = useState<Product[]>([]);
   const [q, setQ] = useState("");
-  const [location, setLocation] = useState(""); // sede
-  const [size, setSize] = useState("");
-  const [minPrice, setMinPrice] = useState<string>("");
-  const [maxPrice, setMaxPrice] = useState<string>("");
-
+  const [rows, setRows] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    let abort = false;
+  async function load() {
     setLoading(true);
-    api
-      .get("/products")
-      .then((r) => {
-        if (!abort) setAll(r.data || []);
-      })
-      .finally(() => !abort && setLoading(false));
-    return () => {
-      abort = true;
-    };
+    const res = await api.get("/products", { params: { q, limit: 100 } });
+    setRows(res.data);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
   }, []);
 
-  const filtered = useMemo(() => {
-    return all.filter((p) => {
-      if (
-        q &&
-        !`${p.title || ""} ${p.barcode || ""}`
-          .toLowerCase()
-          .includes(q.toLowerCase())
-      )
-        return false;
-      if (location && p.location !== location) return false;
-      if (size && (p.size || "") !== size) return false;
-      const price = p.price_eur ?? 0;
-      if (minPrice && price < parseFloat(minPrice)) return false;
-      if (maxPrice && price > parseFloat(maxPrice)) return false;
-      return true;
-    });
-  }, [all, q, location, size, minPrice, maxPrice]);
-
   return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Prodotti</h2>
-
-      <div className="grid md:grid-cols-6 gap-2">
+    <div className="p-4 space-y-3">
+      <h1 className="text-xl font-semibold">Prodotti</h1>
+      <div className="flex gap-2">
         <input
-          className="input md:col-span-2"
-          placeholder="Cerca titolo o barcode"
+          className="input"
+          placeholder="Cerca SKU/Barcode/Titolo"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <input
-          className="input"
-          placeholder="Sede (es. Negozio, Magazzino)"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-        />
-        <input
-          className="input"
-          placeholder="Taglia (es. 42, M)"
-          value={size}
-          onChange={(e) => setSize(e.target.value)}
-        />
-        <input
-          className="input"
-          placeholder="Prezzo min"
-          value={minPrice}
-          onChange={(e) => setMinPrice(e.target.value)}
-        />
-        <input
-          className="input"
-          placeholder="Prezzo max"
-          value={maxPrice}
-          onChange={(e) => setMaxPrice(e.target.value)}
-        />
+        <button className="btn" onClick={load} disabled={loading}>
+          {loading ? "..." : "Cerca"}
+        </button>
       </div>
-
-      {loading && <p>Caricamento…</p>}
-
-      <div className="grid gap-3">
-        {filtered.map((p) => (
-          <ProductCard key={p.id} p={p} />
+      <div className="grid md:grid-cols-3 gap-3">
+        {rows.map((p) => (
+          <div key={p.id} className="card flex gap-3">
+            <img
+              src={p.image_url || "/placeholder.png"}
+              alt=""
+              style={{
+                width: 90,
+                height: 90,
+                objectFit: "cover",
+                borderRadius: 8,
+              }}
+            />
+            <div>
+              <div className="font-medium">{p.title}</div>
+              <div className="text-sm text-gray-600">
+                {p.brand} • SKU {p.sku} {p.barcode ? `• ${p.barcode}` : ""}
+              </div>
+              <div className="text-sm">Prezzo: {p.price ?? "-"}</div>
+            </div>
+          </div>
         ))}
-        {!loading && filtered.length === 0 && (
-          <p className="text-sm text-gray-500">Nessun prodotto.</p>
-        )}
       </div>
     </div>
   );
