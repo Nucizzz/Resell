@@ -26,6 +26,10 @@ psswd:Sharkshopify1
 ssh deploy@84.46.245.46
 psswd:Sharkshopify1
 
+
+sudo mkdir -p /opt/nucizzz-ims
+sudo chown -R deploy:deploy /opt/nucizzz-ims
+
 sudo tar -xzvf ~/project.tgz -C /opt/nucizzz-ims
 sudo chown -R deploy:deploy /opt/nucizzz-ims
 
@@ -37,12 +41,11 @@ docker compose down -v
 docker system prune -af
 docker volume prune -f
 
-# sali i servizi
+
 docker compose up -d db
-# aspetta che il DB diventi healthy:
+
 docker compose ps
 
-# poi tutto il resto
 docker compose up -d --build
 
 
@@ -50,3 +53,13 @@ docker compose up -d --build
 docker compose logs -f backend
 docker compose logs -f frontend
 docker compose logs -f caddy
+
+
+
+
+
+
+FAR SPARIRE ERRORI 
+cd frontend
+npm install
+su POWERSHELL
