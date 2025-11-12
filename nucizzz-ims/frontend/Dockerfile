@@ -1,10 +1,12 @@
-FROM node:20-alpine
-
+FROM node:20-alpine AS builder
 WORKDIR /app
-COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
-RUN npm install --legacy-peer-deps
-COPY . .
+COPY package*.json ./
+RUN npm ci || npm install
+COPY . ./
 RUN npm run build
-
+FROM node:20-alpine
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+RUN npm i vite -g
 EXPOSE 5173
-CMD ["npm", "run", "preview"]
+CMD ["vite","preview","--host","0.0.0.0","--port","5173","--strictPort"]
