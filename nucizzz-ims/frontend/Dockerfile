@@ -1,16 +1,10 @@
-# ---- builder ----
-FROM node:20-alpine AS builder
+FROM node:20-alpine
+
 WORKDIR /app
-COPY package*.json ./
-# assicurati che devDependencies vengano installate
-ENV NODE_ENV=development
-RUN npm ci || npm install
+COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
+RUN npm install --legacy-peer-deps
 COPY . .
 RUN npm run build
 
-# ---- runtime (statico) ----
-FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-# opzionale: SPA fallback per React Router
-RUN printf "server {\n  listen 80;\n  root /usr/share/nginx/html;\n  index index.html;\n  location / {\n    try_files \$uri /index.html;\n  }\n}\n" > /etc/nginx/conf.d/default.conf
-EXPOSE 80
+EXPOSE 5173
+CMD ["npm", "run", "preview"]
