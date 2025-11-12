@@ -1,15 +1,16 @@
-# builder
+# ---- builder ----
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci || npm install --legacy-peer-deps
+# assicurati che devDependencies vengano installate
+ENV NODE_ENV=development
+RUN npm ci || npm install
 COPY . .
 RUN npm run build
 
-# runtime
-FROM node:20-alpine
-WORKDIR /app
-COPY --from=builder /app/dist ./dist
-RUN npm i -g vite
-EXPOSE 5173
-CMD ["vite", "preview", "--host", "0.0.0.0", "--port", "5173"]
+# ---- runtime (statico) ----
+FROM nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+# opzionale: SPA fallback per React Router
+RUN printf "server {\n  listen 80;\n  root /usr/share/nginx/html;\n  index index.html;\n  location / {\n    try_files \$uri /index.html;\n  }\n}\n" > /etc/nginx/conf.d/default.conf
+EXPOSE 80
