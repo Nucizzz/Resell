@@ -5,7 +5,7 @@ from os import getenv
 from pathlib import Path
 
 from .database import Base, engine
-from .routers import products, locations, stock, uploads
+from .routers import products, locations, stock, uploads, shopify
 
 API_BASE = getenv("API_BASE_PATH", "/api")
 
@@ -35,7 +35,16 @@ app.include_router(products.router, prefix=API_BASE)
 app.include_router(locations.router, prefix=API_BASE)
 app.include_router(stock.router, prefix=API_BASE)
 app.include_router(uploads.router, prefix=API_BASE)
+app.include_router(shopify.router, prefix=API_BASE)
 
 @app.get("/")
 def root():
     return {"ok": True, "api": API_BASE}
+
+@app.get(API_BASE)
+def api_root():
+    return {"ok": True}
+
+@app.post(API_BASE)
+def api_noop():
+    return {"ok": True}

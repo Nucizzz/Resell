@@ -103,8 +103,8 @@ def upsert_stock(db: Session, product_id: int, location_id: int, delta: int, mov
     )
     db.add(mv)
     db.commit()
-    db.refresh(s)
-    return s
+    db.refresh(mv)
+    return mv
 
 def transfer_stock(db: Session, product_id: int, from_loc: int, to_loc: int, qty: int):
     # decrementa
@@ -129,4 +129,5 @@ def transfer_stock(db: Session, product_id: int, from_loc: int, to_loc: int, qty
     )
     db.add(mv)
     db.commit()
-    return True
+    db.refresh(mv)
+    return mv

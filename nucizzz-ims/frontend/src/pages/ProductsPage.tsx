@@ -44,16 +44,34 @@ export default function ProductsPage() {
       <div className="grid md:grid-cols-3 gap-3">
         {rows.map((p) => (
           <div key={p.id} className="card flex gap-3">
-            <img
-              src={p.image_url || "/placeholder.png"}
-              alt=""
-              style={{
-                width: 90,
-                height: 90,
-                objectFit: "cover",
-                borderRadius: 8,
-              }}
-            />
+            {p.image_url ? (
+              <img
+                src={p.image_url}
+                alt=""
+                style={{
+                  width: 90,
+                  height: 90,
+                  objectFit: "cover",
+                  borderRadius: 8,
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: 90,
+                  height: 90,
+                  borderRadius: 8,
+                  background: "#e5e7eb",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#6b7280",
+                  fontSize: 12,
+                }}
+              >
+                No image
+              </div>
+            )}
             <div>
               <div className="font-medium">{p.title}</div>
               <div className="text-sm text-gray-600">

@@ -62,4 +62,4 @@ docker compose logs -f caddy
 FAR SPARIRE ERRORI 
 cd frontend
 npm install
-su POWERSHELL
+su powershell

@@ -47,7 +47,7 @@ class ShopifyClient:
                     "title": p.title,
                     "variants": [{
                         "id": int(p.shopify_variant_id),
-                        "price": f"{p.price_cents/100:.2f}",
+                        "price": f"{(p.price or 0):.2f}",
                         "sku": p.barcode,
                         "option1": p.size
                     }]
@@ -66,7 +66,7 @@ class ShopifyClient:
                 "body_html": f"Taglia: {p.size}",
                 "status": "active",
                 "variants": [{
-                    "price": f"{p.price_cents/100:.2f}",
+                    "price": f"{(p.price or 0):.2f}",
                     "sku": p.barcode,
                     "inventory_management": "shopify",
                     "option1": p.size

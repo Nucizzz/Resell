@@ -1,10 +1,12 @@
-FROM node:20-alpine
-
+FROM node:20-alpine AS builder
 WORKDIR /app
-COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
-RUN npm install --legacy-peer-deps
+COPY package*.json ./
+RUN npm ci || npm install
 COPY . .
 RUN npm run build
 
-EXPOSE 5173
-CMD ["npm", "run", "preview"]
+FROM node:20-alpine
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+RUN npm install -g serve
+CMD ["serve", "-s", "dist", "-l", "5173"]

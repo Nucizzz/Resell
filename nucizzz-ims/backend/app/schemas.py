@@ -31,6 +31,18 @@ class ProductCreate(ProductBase):
     initial_qty: Optional[int] = 0
     location_id: Optional[int] = None
 
+class ReceiveCreate(BaseModel):
+    barcode: str
+    title: str
+    description: Optional[str] = None
+    size: Optional[str] = None
+    price_eur: Optional[float] = None
+    cost_eur: Optional[float] = None
+    weight_g: Optional[float] = None
+    package_required: Optional[str] = None
+    location: Optional[str] = None
+    image_url: Optional[str] = None
+
 class ProductOut(ProductBase):
     id: int
     created_at: datetime
