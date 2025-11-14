@@ -3,7 +3,33 @@
 }
 
 app.nucizzz.shop {
-	encode gzip
-	reverse_proxy /api* backend:8000
-	reverse_proxy / frontend:5173
+	# Handle API requests first (highest priority) - use handle instead of handle_path to preserve path
+	handle /api/* {
+		reverse_proxy backend:8000 {
+			header_up Host {host}
+			header_up X-Real-IP {remote}
+			header_up X-Forwarded-For {remote}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# Handle static files and frontend
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		encode gzip
+		file_server
+	}
+
+	# Global CORS headers
+	header {
+		Access-Control-Allow-Origin "*"
+		Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+		Access-Control-Allow-Headers "Content-Type, Authorization"
+		Access-Control-Allow-Credentials "true"
+	}
+
+	# Handle preflight requests globally
+	@options method OPTIONS
+	respond @options 204
 }

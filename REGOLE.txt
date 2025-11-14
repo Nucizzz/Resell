@@ -1,18 +1,21 @@
-cd ~
-cd /opt/nucizzz-ims 2>/dev/null && docker compose down -v || true
-cd /opt
-sudo rm -rf /opt/nucizzz-ims
-mkdir -p /home/deploy/nucizzz-ims
+  cd /opt/nucizzz-ims && docker compose -p nucizzz-ims down || true
+  sudo rm -rf /opt/nucizzz-ims
+  mkdir -p /home/deploy/nucizzz-ims
 
 
 POWERSHELL
 cd C:\Users\jnuci\OneDrive\Documenti\GitHub\Resell\nucizzz-ims
 
+# Build frontend prima di deployare
+cd frontend
+npm install
+npm run build
+cd ..
+
 tar.exe -czvf project.tgz `
   --exclude='.git' `
   --exclude='**/node_modules' `
   --exclude='**/.venv' `
-  --exclude='**/dist' `
   --exclude='**/.pytest_cache' `
   --exclude='**/__pycache__' `
   *
@@ -36,17 +39,8 @@ sudo chown -R deploy:deploy /opt/nucizzz-ims
 cd /opt/nucizzz-ims
 ls -la 
 
-
-docker compose down -v
-docker system prune -af
-docker volume prune -f
-
-
-docker compose up -d db
-
-docker compose ps
-
-docker compose up -d --build
+docker compose -p nucizzz-ims pull && docker compose -p nucizzz-ims build
+docker compose -p nucizzz-ims up -d
 
 
 
@@ -63,3 +57,8 @@ FAR SPARIRE ERRORI
 cd frontend
 npm install
 su powershell
+
+
+Io ho un negozio di reselling vwstiti e scarpe. Ho bisogno di un bel gestionale in cui quando arrivano nuovi prodotti li scansioni e aggiungi al sistema e quando vendi scansioni per levarli. Inoltre collegabile totalmente con il sito Shopify. Ogni volta che viene scansionato un prodotto nel gestionale viene aggiunto in automatico anche tra i prodotti in shoèpify. Genera tutti i file che servono e mettili nella repository in modo ordinato. poi dimmi come eseguire il tutto. Io posseggo un dominio nucizzz.shop che è collegato all'account clodflare e dobbiamo creare acnhe il database
+
+ORA MODIFICA I FILES DELLE PAGINE PER CREARE INTERFACCIA MIGLIORE E MOBILE FRENDLY. AGGINGI PAGINE PER ANALISI DI COME STA ANDANDO IL NEGOZIO. CRONOLOGIA VENDITE E STORICO. INOLTRE SISTEMA LO SCANNER, DEFAUL LA TELECAMERA CHE USA E QUELLA FUORI NON INTERNA. INOLTRE QUANDO PRENDE UN BARCODE CHIUDE LA WEBCAM E SE DEVO RIPRENDERE UN'ALTRO SCHIACCIO IO SCANSIONA. AGGIUNGI FUNZIONE NELLA PAGINA PRODOTTI DI CERCA O MANUALMENTE O SCANN CON BARCODE. INOLTRE MIGLIORA TUTTO, NEI PRODOTTI HAI OPZIONE MODIFICA I DATI O ELINA PRODOTTO O VENDI E ALTRO TUTTI FUNZIONANTI. NON TOCCARE LE CONNESSIONI.

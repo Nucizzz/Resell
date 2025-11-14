@@ -6,7 +6,7 @@ from ..database import get_db
 from .. import schemas, models, crud
 from sqlalchemy import select
 
-router = APIRouter(prefix="/locations", tags=["locations"])
+router = APIRouter(tags=["locations"])
 
 @router.get("/", response_model=List[schemas.LocationOut])
 def list_locations(db: Session = Depends(get_db)):

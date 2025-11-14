@@ -6,7 +6,12 @@ import uuid
 UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-router = APIRouter(prefix="/uploads", tags=["uploads"])
+router = APIRouter(tags=["uploads"])
+
+@router.options("/")
+async def options_uploads():
+    return {"ok": True}
+
 
 @router.post("/")
 async def upload_image(file: UploadFile = File(...)):
@@ -17,4 +22,4 @@ async def upload_image(file: UploadFile = File(...)):
     dest = UPLOAD_DIR / name
     content = await file.read()
     dest.write_bytes(content)
-    return {"filename": name, "url": f"/api/uploads/{name}"}
+    return {"filename": name, "url": f"/api/files/{name}"}

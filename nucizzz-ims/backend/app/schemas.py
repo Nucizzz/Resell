@@ -34,6 +34,7 @@ class ProductCreate(ProductBase):
 class ReceiveCreate(BaseModel):
     barcode: str
     title: str
+    brand: Optional[str] = None
     description: Optional[str] = None
     size: Optional[str] = None
     price_eur: Optional[float] = None

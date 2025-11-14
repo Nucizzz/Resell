@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import select, update
+from datetime import datetime
 from . import models, schemas
 
 def get_or_create_location(db: Session, name: str) -> models.Location:
@@ -13,11 +14,7 @@ def get_or_create_location(db: Session, name: str) -> models.Location:
     return loc
 
 def create_product(db: Session, data: schemas.ProductCreate) -> models.Product:
-    # no doppioni di barcode o sku
-    if data.barcode:
-        exists = db.scalar(select(models.Product).where(models.Product.barcode == data.barcode))
-        if exists:
-            raise ValueError("Barcode già presente")
+    # SKU deve essere unico, ma il barcode può essere duplicato (stesso prodotto in location diverse)
     exists_sku = db.scalar(select(models.Product).where(models.Product.sku == data.sku))
     if exists_sku:
         raise ValueError("SKU già presente")
@@ -79,7 +76,12 @@ def list_products(db: Session, q: str | None = None, location_id: int | None = N
     return res
 
 def get_product_by_barcode(db: Session, barcode: str) -> models.Product | None:
+    """Restituisce il primo prodotto trovato con questo barcode"""
     return db.scalar(select(models.Product).where(models.Product.barcode == barcode))
+
+def get_products_by_barcode(db: Session, barcode: str) -> list[models.Product]:
+    """Restituisce tutti i prodotti con questo barcode"""
+    return list(db.scalars(select(models.Product).where(models.Product.barcode == barcode)).all())
 
 def get_product(db: Session, pid: int) -> models.Product | None:
     return db.get(models.Product, pid)
@@ -105,6 +107,19 @@ def upsert_stock(db: Session, product_id: int, location_id: int, delta: int, mov
     db.commit()
     db.refresh(mv)
     return mv
+
+def list_movements(db: Session, type: str | None = None, limit: int = 100, offset: int = 0, from_dt: datetime | None = None, to_dt: datetime | None = None):
+    stmt = select(models.StockMovement).order_by(models.StockMovement.created_at.desc())
+    if type:
+        stmt = stmt.where(models.StockMovement.type == type)
+    if from_dt:
+        stmt = stmt.where(models.StockMovement.created_at >= from_dt)
+    if to_dt:
+        stmt = stmt.where(models.StockMovement.created_at <= to_dt)
+    return db.scalars(stmt.offset(offset).limit(limit)).all()
+
+def list_stock_by_product(db: Session, product_id: int):
+    return db.scalars(select(models.Stock).where(models.Stock.product_id == product_id)).all()
 
 def transfer_stock(db: Session, product_id: int, from_loc: int, to_loc: int, qty: int):
     # decrementa

@@ -1,7 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { api } from "../api";
+import { useNavigate, useParams } from "react-router-dom";
 
 export default function ProductFormPage() {
+  const { id } = useParams();
+  const navigate = useNavigate();
   const [form, setForm] = useState({
     sku: "",
     barcode: "",
@@ -18,28 +21,69 @@ export default function ProductFormPage() {
   });
   const [msg, setMsg] = useState("");
 
+  useEffect(() => {
+    async function load() {
+      if (!id) return;
+      try {
+        const res = await api.get(`/products/${id}`);
+        setForm({
+          sku: res.data.sku || "",
+          barcode: res.data.barcode || "",
+          title: res.data.title || "",
+          brand: res.data.brand || "",
+          description: res.data.description || "",
+          size: res.data.size || "",
+          color: res.data.color || "",
+          weight_grams: String(res.data.weight_grams ?? ""),
+          package_required: res.data.package_required || "",
+          cost: String(res.data.cost ?? ""),
+          price: String(res.data.price ?? ""),
+          image_url: res.data.image_url || "",
+        });
+      } catch {}
+    }
+    load();
+  }, [id]);
+
   function set<K extends keyof typeof form>(k: K, v: any) {
     setForm({ ...form, [k]: v });
   }
 
   async function submit() {
     try {
-      await api.post("/products", {
+      const payload = {
         ...form,
         weight_grams: form.weight_grams ? Number(form.weight_grams) : null,
         cost: form.cost ? Number(form.cost) : null,
         price: form.price ? Number(form.price) : null,
-        initial_qty: 0,
-      });
-      setMsg("Prodotto creato.");
+      };
+      if (id) {
+        await api.patch(`/products/${id}`, payload);
+        setMsg("Prodotto aggiornato.");
+      } else {
+        await api.post("/products/", { ...payload, initial_qty: 0 });
+        setMsg("Prodotto creato.");
+      }
     } catch (e: any) {
-      setMsg(e?.response?.data?.detail || "Errore creazione");
+      const detail = e?.response?.data?.detail || "Errore creazione";
+      // se lo SKU esiste già, mostra quello esistente
+      try {
+        if (detail.includes("SKU già presente") && form.sku) {
+          const r = await api.get(`/products/`, { params: { q: form.sku, limit: 1 } });
+          const ex = r.data?.[0];
+          if (ex) {
+            navigate(`/products/edit/${ex.id}`);
+            return;
+          }
+        }
+      } catch {}
+      setMsg(detail);
     }
   }
 
   return (
     <div className="p-4 space-y-3">
-      <h1 className="text-xl font-semibold">Nuovo prodotto</h1>
+      <h1 className="text-xl font-semibold">{id ? "Modifica prodotto" : "Nuovo prodotto"}</h1>
       <div className="grid md:grid-cols-2 gap-3">
         <input
           className="input"

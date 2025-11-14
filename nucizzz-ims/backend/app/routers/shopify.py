@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ..shopify import ShopifyClient, ShopifyError
 
-router = APIRouter(prefix="/shopify", tags=["shopify"])
+router = APIRouter(tags=["shopify"])
 
 class SetupIn(BaseModel):
     shop: str
