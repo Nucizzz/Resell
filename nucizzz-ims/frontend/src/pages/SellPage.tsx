@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { api } from "../api";
 import Scanner from "../components/Scanner"; // tuo scanner
+import { useLocationSelection } from "../contexts/LocationContext";
 
 export default function SellPage() {
   const [barcode, setBarcode] = useState("");
@@ -8,24 +9,10 @@ export default function SellPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
   const [qty, setQty] = useState<number>(1);
-  const [locations, setLocations] = useState<{ id: number; name: string }[]>([]);
-  const [fromLoc, setFromLoc] = useState<number | "">("");
   const [productsWithStock, setProductsWithStock] = useState<any[]>([]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await api.get("/locations/");
-        const payload = r.data;
-        const rows = Array.isArray(payload) ? payload : [];
-        setLocations(rows);
-        if (rows[0]) setFromLoc(rows[0].id);
-        if (!Array.isArray(payload)) setMsg("Risposta locations non valida");
-      } catch {
-        setMsg("Errore caricamento locations");
-      }
-    })();
-  }, []);
+  const { mode, location: currentLocation, locations, openSelector } = useLocationSelection();
+  const activeLocationId = mode === "location" ? currentLocation?.id ?? null : null;
+  const locationName = currentLocation?.name ?? "";
 
   async function searchBarcode() {
     if (!barcode) return;
@@ -89,20 +76,36 @@ export default function SellPage() {
   }
 
   async function sellOne() {
-    if (!product) return;
+    if (!product || !activeLocationId) {
+      setMsg("Seleziona una location operativa per registrare la vendita.");
+      if (!activeLocationId) openSelector();
+      return;
+    }
     try {
       await api.post("/stock/movement", {
         product_id: product.id,
         type: "sell",
         qty_change: qty,
-        from_location_id: fromLoc || null,
+        from_location_id: activeLocationId,
         to_location_id: null,
         note: "POS vendita",
       });
-      setMsg(`Venduto ${qty}.`);
+      setMsg(`Venduto ${qty} in ${locationName}`);
     } catch (e: any) {
       setMsg(e?.response?.data?.detail || "Errore vendita");
     }
+  }
+
+  if (!activeLocationId) {
+    return (
+      <div className="p-4 space-y-3">
+        <h1 className="text-xl font-semibold">Vendi</h1>
+        <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-4 text-sm">
+          Seleziona una location per abilitare le vendite. La giacenza verrà scalata dalla sede scelta.
+        </div>
+        <button className="btn" onClick={openSelector}>Scegli location</button>
+      </div>
+    );
   }
 
   return (
@@ -116,18 +119,14 @@ export default function SellPage() {
         </div>
         <button className="btn" onClick={searchBarcode}>Cerca</button>
       </div>
-      <div className="flex flex-wrap gap-2 items-end">
+      <div className="flex flex-wrap gap-4 items-end">
         <div>
           <div className="text-xs text-gray-600">Quantità</div>
           <input className="input" type="number" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value || 1))} />
         </div>
-        <div>
-          <div className="text-xs text-gray-600">Sede</div>
-          <select className="input" value={fromLoc} onChange={(e) => setFromLoc(Number(e.target.value))}>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>{l.name}</option>
-            ))}
-          </select>
+        <div className="text-sm text-gray-600">
+          Location corrente:
+          <div className="font-semibold text-base">{locationName}</div>
         </div>
       </div>
 

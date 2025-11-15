@@ -3,6 +3,7 @@ import React, { useContext } from "react";
 import { NavLink } from "react-router-dom";
 import { api } from "../api";
 import { ToastContext } from "../App";
+import { useLocationSelection } from "../contexts/LocationContext";
 
 const linkBase = "px-3 py-2 rounded-lg";
 const active = "bg-black text-white";
@@ -12,6 +13,10 @@ export default function Topbar() {
   const [open, setOpen] = React.useState(false);
   const [dark, setDark] = React.useState(false);
   const toast = useContext(ToastContext);
+  const { mode, location, openSelector } = useLocationSelection();
+
+  const currentLabel = mode === "location" ? location?.name || "Location" : "Vista generale";
+  const modeDescription = mode === "location" ? "Movimenti su questa sede" : "Solo consultazione";
 
   React.useEffect(() => {
     const v = localStorage.getItem("theme") === "dark";
@@ -45,7 +50,7 @@ export default function Topbar() {
 
   return (
     <div className="sticky top-0 z-20 backdrop-blur bg-white/70 dark:bg-gray-900/70 py-2 px-2 rounded-xl">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">Nucizzz IMS</h1>
           <div className="hidden md:flex items-center gap-2 text-sm">
@@ -54,6 +59,13 @@ export default function Topbar() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <div className="hidden md:flex flex-col text-xs text-gray-500 dark:text-gray-400">
+            <span className="font-semibold text-base text-gray-900 dark:text-gray-100">{currentLabel}</span>
+            <span>{modeDescription}</span>
+          </div>
+          <button className="px-3 py-2 rounded bg-gray-100 dark:bg-gray-700" onClick={openSelector}>
+            Cambia sede
+          </button>
           <button className="hidden md:block px-3 py-2 rounded bg-gray-100 dark:bg-gray-700" onClick={toggleTheme}>
             {dark ? "Light" : "Dark"}
           </button>
@@ -73,6 +85,11 @@ export default function Topbar() {
       </nav>
       {open && (
         <div className="md:hidden mt-2 grid grid-cols-2 gap-2">
+          <div className="col-span-2 flex flex-col rounded-lg bg-gray-100 dark:bg-gray-800 p-3 text-sm">
+            <span className="font-semibold text-base text-gray-900 dark:text-gray-100">{currentLabel}</span>
+            <span className="text-gray-500 dark:text-gray-400">{modeDescription}</span>
+            <button className="btn mt-2" onClick={openSelector}>Cambia</button>
+          </div>
           <button className="px-3 py-2 rounded bg-gray-100 dark:bg-gray-700" onClick={toggleTheme}>{dark ? "Light" : "Dark"}</button>
           <NavLink to="/products" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Prodotti</NavLink>
           <NavLink to="/receive" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Ricezione</NavLink>

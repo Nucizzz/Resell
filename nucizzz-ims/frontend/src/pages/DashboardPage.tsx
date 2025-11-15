@@ -16,10 +16,17 @@ import {
 import { GlowingEffect } from "@/components/ui/glowing-effect";
 import { cn } from "@/lib/utils";
 import { useAuth } from "../contexts/AuthContext";
+import { useLocationSelection } from "../contexts/LocationContext";
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { logout, user } = useAuth();
+  const { mode, location, openSelector } = useLocationSelection();
+
+  const locationLabel = mode === "location" ? location?.name || "Location" : "Vista generale";
+  const modeHint = mode === "location"
+    ? "Tutte le ricezioni e vendite agiscono su questa sede"
+    : "Modalità consultazione: puoi vedere stock e creare prodotti";
 
   const handleLogout = () => {
     logout();
@@ -93,6 +100,10 @@ export default function DashboardPage() {
     },
   ];
 
+  const filteredMenu = mode === "location"
+    ? menuItems
+    : menuItems.filter((item) => !["receive", "sell"].includes(item.id));
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -115,9 +126,22 @@ export default function DashboardPage() {
           </button>
         </div>
 
+        <div className="rounded-2xl border border-white/10 bg-white/10 p-4 text-white space-y-2">
+          <div className="text-sm uppercase text-white/70">Sede corrente</div>
+          <div className="flex flex-wrap items-center gap-3 justify-between">
+            <div>
+              <p className="text-2xl font-semibold">{locationLabel}</p>
+              <p className="text-white/70 text-sm">{modeHint}</p>
+            </div>
+            <button onClick={openSelector} className="px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30">
+              Cambia sede
+            </button>
+          </div>
+        </div>
+
         {/* Menu Grid */}
         <ul className="grid grid-cols-1 grid-rows-none gap-4 md:grid-cols-12 md:grid-rows-5 lg:gap-4 xl:max-h-[34rem] xl:grid-rows-3">
-          {menuItems.map((item) => (
+          {filteredMenu.map((item) => (
             <GridItem
               key={item.id}
               area={item.area}
