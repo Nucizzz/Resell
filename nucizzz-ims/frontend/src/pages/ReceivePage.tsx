@@ -1,8 +1,9 @@
 // frontend/src/pages/ReceivePage.tsx
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { api } from "../api";
 import Scanner from "../components/Scanner";
 import { lookupBarcode } from "../lib/barcode-lookup";
+import { useLocationSelection } from "../contexts/LocationContext";
 
 export default function ReceivePage() {
   const [form, setForm] = useState({
@@ -15,33 +16,18 @@ export default function ReceivePage() {
     cost_eur: "" as string | number,
     weight_g: "" as string | number,
     package_required: "",
-    location: "",
     image_url: "",
   });
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [locations, setLocations] = useState<{ id: number; name: string }[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loadingBarcode, setLoadingBarcode] = useState(false);
   const [existingProduct, setExistingProduct] = useState<any>(null);
   const [showAddStockDialog, setShowAddStockDialog] = useState(false);
   const [addStockQty, setAddStockQty] = useState(1);
-  const [addStockLocation, setAddStockLocation] = useState("");
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await api.get("/locations/");
-        const payload = r.data;
-        setLocations(Array.isArray(payload) ? payload : []);
-        if (!Array.isArray(payload)) {
-          setErr("Risposta locations non valida");
-        }
-      } catch {
-        setErr("Errore caricamento locations");
-      }
-    })();
-  }, []);
+  const { mode, location: currentLocation, openSelector } = useLocationSelection();
+  const activeLocationId = mode === "location" ? currentLocation?.id ?? null : null;
+  const activeLocationName = mode === "location" ? currentLocation?.name ?? "" : "";
 
   async function checkExistingProduct(barcode: string) {
     try {
@@ -53,11 +39,12 @@ export default function ReceivePage() {
   }
 
   async function addStockToExisting() {
-    if (!existingProduct || !addStockLocation) {
-      setErr("Seleziona una location");
+    if (!existingProduct || !activeLocationId) {
+      setErr("Seleziona una location operativa per aggiungere stock");
+      if (!activeLocationId) openSelector();
       return;
     }
-    
+
     setMsg(null);
     setErr(null);
     try {
@@ -66,14 +53,13 @@ export default function ReceivePage() {
         type: "in",
         qty_change: addStockQty,
         from_location_id: null,
-        to_location_id: locations.find(l => l.name === addStockLocation)?.id || null,
+        to_location_id: activeLocationId,
         note: "Ricezione merce",
       });
-      setMsg(`Aggiunte ${addStockQty} unità in "${addStockLocation}" per prodotto #${existingProduct.id}`);
+      setMsg(`Aggiunte ${addStockQty} unità in "${activeLocationName}" per prodotto #${existingProduct.id}`);
       setShowAddStockDialog(false);
       setExistingProduct(null);
       setAddStockQty(1);
-      setAddStockLocation("");
     } catch (e: any) {
       setErr(e?.response?.data?.detail || e.message || "Errore aggiunta stock");
     }
@@ -93,11 +79,12 @@ export default function ReceivePage() {
         price_eur: form.price_eur ? Number(form.price_eur) : null,
         cost_eur: form.cost_eur ? Number(form.cost_eur) : null,
         weight_g: form.weight_g ? Number(form.weight_g) : null,
+        location: activeLocationName || undefined,
       });
       setMsg(
         `Prodotto creato${
           res.data?.shopify_product_id ? " e sincronizzato su Shopify" : ""
-        }: #${res.data?.id}${form.location ? ` - Stock aggiunto in "${form.location}"` : ""}`
+        }: #${res.data?.id}${activeLocationName ? ` - Stock aggiunto in "${activeLocationName}"` : ""}`
       );
       // pulizia form dopo salvataggio
       setForm({
@@ -110,7 +97,6 @@ export default function ReceivePage() {
         cost_eur: "",
         weight_g: "",
         package_required: "",
-        location: form.location, // Mantieni la location selezionata
         image_url: "",
       });
       setExistingProduct(null);
@@ -122,6 +108,20 @@ export default function ReceivePage() {
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold">Ricezione merce</h2>
+      <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-4 text-sm">
+        {activeLocationId ? (
+          <p>
+            Operi su <span className="font-semibold">{currentLocation?.name}</span>. Tutto lo stock verrà aggiunto automaticamente a questa sede.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <p>
+              Modalità generale attiva: registri solo l'anagrafica dei prodotti senza aggiungere stock.
+            </p>
+            <button className="btn" onClick={openSelector}>Scegli una location</button>
+          </div>
+        )}
+      </div>
 
       <Scanner
         onDetected={async (code) => {
@@ -135,9 +135,15 @@ export default function ReceivePage() {
           const existing = await checkExistingProduct(code);
           
           if (existing) {
-            // Prodotto esistente: mostra dialog per aggiungere stock
-            setExistingProduct(existing);
-            setShowAddStockDialog(true);
+            if (activeLocationId) {
+              // Prodotto esistente: mostra dialog per aggiungere stock
+              setExistingProduct(existing);
+              setShowAddStockDialog(true);
+            } else {
+              setExistingProduct(null);
+              setShowAddStockDialog(false);
+              setMsg("Prodotto già presente nel sistema. Seleziona una location per aggiungere stock.");
+            }
             setLoadingBarcode(false);
             return;
           }
@@ -202,17 +208,9 @@ export default function ReceivePage() {
             
             <div>
               <label className="text-sm font-medium">Location</label>
-              <select
-                value={addStockLocation}
-                onChange={(e) => setAddStockLocation(e.target.value)}
-                className="input mt-1"
-                required
-              >
-                <option value="">Seleziona location</option>
-                {locations.map((l) => (
-                  <option key={l.id} value={l.name}>{l.name}</option>
-                ))}
-              </select>
+              <div className="input mt-1 bg-gray-100 dark:bg-gray-800">
+                {activeLocationName || "Nessuna"}
+              </div>
             </div>
           </div>
           
@@ -228,7 +226,6 @@ export default function ReceivePage() {
                 setShowAddStockDialog(false);
                 setExistingProduct(null);
                 setAddStockQty(1);
-                setAddStockLocation("");
               }}
               className="btn bg-gray-200 hover:bg-gray-300"
             >
@@ -305,15 +302,6 @@ export default function ReceivePage() {
                 setForm({ ...form, package_required: e.target.value })
               }
             />
-            <div>
-              <div className="text-xs text-gray-600">Sede</div>
-              <select className="input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}>
-                <option value="">Seleziona</option>
-                {locations.map((l) => (
-                  <option key={l.id} value={l.name}>{l.name}</option>
-                ))}
-              </select>
-            </div>
             <input
               className="input"
               placeholder="URL immagine (opz.)"

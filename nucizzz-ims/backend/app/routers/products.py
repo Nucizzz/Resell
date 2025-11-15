@@ -17,6 +17,10 @@ async def options_receive():
 def list_products(q: Optional[str] = None, location_id: Optional[int] = None, limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
     return crud.list_products(db, q=q, location_id=location_id, limit=limit, offset=offset)
 
+@router.get("/with-stock", response_model=List[schemas.ProductWithStockOut])
+def list_products_with_stock(q: Optional[str] = None, limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
+    return crud.list_products_with_stock(db, q=q, limit=limit, offset=offset)
+
 @router.post("/", response_model=schemas.ProductOut)
 def create_product(data: schemas.ProductCreate, db: Session = Depends(get_db)):
     try:
