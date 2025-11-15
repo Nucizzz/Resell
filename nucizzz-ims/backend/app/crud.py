@@ -1,3 +1,4 @@
+from collections import defaultdict
 from sqlalchemy.orm import Session
 from sqlalchemy import select, update
 from datetime import datetime
@@ -75,6 +76,31 @@ def list_products(db: Session, q: str | None = None, location_id: int | None = N
     res = db.scalars(stmt.offset(offset).limit(limit)).all()
     return res
 
+def list_products_with_stock(db: Session, q: str | None = None, limit: int = 50, offset: int = 0):
+    products = list_products(db, q=q, location_id=None, limit=limit, offset=offset)
+    if not products:
+        return []
+
+    ids = [p.id for p in products]
+    stocks = db.scalars(select(models.Stock).where(models.Stock.product_id.in_(ids))).all()
+    stock_map: dict[int, list[models.Stock]] = defaultdict(list)
+    for stock in stocks:
+        stock_map[stock.product_id].append(stock)
+
+    results = []
+    for product in products:
+        base = schemas.ProductOut.model_validate(product, from_attributes=True).model_dump()
+        product_stock = [
+            {"location_id": s.location_id, "qty": s.qty}
+            for s in stock_map.get(product.id, [])
+        ]
+        results.append({
+            **base,
+            "stock": product_stock,
+            "total_qty": sum(item["qty"] for item in product_stock),
+        })
+    return results
+
 def get_product_by_barcode(db: Session, barcode: str) -> models.Product | None:
     """Restituisce il primo prodotto trovato con questo barcode"""
     return db.scalar(select(models.Product).where(models.Product.barcode == barcode))
@@ -91,10 +117,16 @@ def upsert_stock(db: Session, product_id: int, location_id: int, delta: int, mov
         (models.Stock.product_id == product_id) &
         (models.Stock.location_id == location_id)
     ))
+
     if s:
-        s.qty += delta
+        new_qty = s.qty + delta
+        if new_qty < 0:
+            raise ValueError("Stock insufficiente per l'operazione richiesta")
+        s.qty = new_qty
     else:
-        s = models.Stock(product_id=product_id, location_id=location_id, qty=max(0, delta))
+        if delta < 0:
+            raise ValueError("Stock non disponibile in questa location")
+        s = models.Stock(product_id=product_id, location_id=location_id, qty=delta)
         db.add(s)
 
     mv = models.StockMovement(

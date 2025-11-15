@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useContext } from "react";
 import { api } from "../api"; // usa il tuo helper esistente
 import Scanner from "../components/Scanner";
+import { useLocationSelection } from "../contexts/LocationContext";
 
 type Product = {
   id: number;
@@ -11,6 +12,8 @@ type Product = {
   price?: number;
   image_url?: string;
   is_active?: boolean;
+  stock?: { location_id: number; qty: number }[];
+  total_qty?: number;
 };
 
 export default function ProductsPage() {
@@ -21,32 +24,43 @@ export default function ProductsPage() {
   const [msg, setMsg] = useState("");
   const [brand, setBrand] = useState<string>("");
   const [onlyActive, setOnlyActive] = useState<boolean>(true);
-  const [defaultLocationId, setDefaultLocationId] = useState<number | null>(null);
   const [minPrice, setMinPrice] = useState<string>("");
   const [maxPrice, setMaxPrice] = useState<string>("");
   const [sortKey, setSortKey] = useState<string>("title");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState<number>(1);
   const [perPage, setPerPage] = useState<number>(9);
+  const [onlyHere, setOnlyHere] = useState(false);
+  const { mode, location: currentLocation, locations: knownLocations, openSelector } = useLocationSelection();
+  const currentLocationId = mode === "location" ? currentLocation?.id ?? null : null;
+  const currentLocationName = currentLocation?.name ?? "Location";
   const brands = useMemo(() => {
     const set = new Set<string>();
     rows.forEach((r) => r.brand && set.add(r.brand));
     return Array.from(set).sort();
   }, [rows]);
 
+  useEffect(() => {
+    if (mode !== "location") {
+      setOnlyHere(false);
+    }
+  }, [mode]);
+
   async function load() {
     setLoading(true);
     try {
-      const res = await api.get("/products/", { params: { q, limit: 100 } });
+      const res = await api.get("/products/with-stock", { params: { q, limit: 100 } });
       const payload = res.data;
-      // Defensive: ensure we set an array to rows. Backend should return an array,
-      // but if something else arrives (HTML error page, object wrapper), avoid crash.
       if (Array.isArray(payload)) {
-        setRows(payload);
-      } else if (payload && Array.isArray((payload as any).items)) {
-        setRows((payload as any).items);
+        setRows(
+          payload.map((item: any) => ({
+            ...item,
+            stock: Array.isArray(item.stock) ? item.stock : [],
+            total_qty: typeof item.total_qty === "number" ? item.total_qty : 0,
+          }))
+        );
       } else {
-        console.error("Unexpected /products response shape:", payload);
+        console.error("Unexpected /products/with-stock response shape:", payload);
         setMsg("Errore API prodotti: risposta non valida");
         setRows([]);
       }
@@ -84,16 +98,6 @@ export default function ProductsPage() {
     load();
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await api.get("/locations/");
-        const rows = Array.isArray(r.data) ? r.data : [];
-        if (rows[0]) setDefaultLocationId(rows[0].id);
-      } catch {}
-    })();
-  }, []);
-
   const filtered = useMemo(() => {
     let data = rows;
     if (onlyActive) data = data.filter((r) => r.is_active !== false);
@@ -102,8 +106,13 @@ export default function ProductsPage() {
     const max = maxPrice ? Number(maxPrice) : null;
     if (min !== null) data = data.filter((r) => (r.price ?? 0) >= min);
     if (max !== null) data = data.filter((r) => (r.price ?? 0) <= max);
+    if (onlyHere && currentLocationId) {
+      data = data.filter((r) =>
+        (r.stock || []).some((s) => s.location_id === currentLocationId && s.qty > 0)
+      );
+    }
     return data;
-  }, [rows, brand, onlyActive, minPrice, maxPrice]);
+  }, [rows, brand, onlyActive, minPrice, maxPrice, onlyHere, currentLocationId]);
 
   const sorted = useMemo(() => {
     const copy = [...filtered];
@@ -125,6 +134,11 @@ export default function ProductsPage() {
     return sorted.slice(start, start + perPage);
   }, [sorted, page, perPage]);
 
+  const getLocationName = (id: number) => {
+    const loc = knownLocations.find((l) => l.id === id);
+    return loc ? loc.name : `Location ${id}`;
+  };
+
   return (
     <div className="p-4 space-y-3">
       <h1 className="text-xl font-semibold">Prodotti</h1>
@@ -145,6 +159,12 @@ export default function ProductsPage() {
             ))}
           </select>
         </div>
+        {mode === "location" && (
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={onlyHere} onChange={(e) => setOnlyHere(e.target.checked)} />
+            Solo {currentLocationName}
+          </label>
+        )}
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={onlyActive} onChange={(e) => setOnlyActive(e.target.checked)} />
           Solo attivi
@@ -173,6 +193,9 @@ export default function ProductsPage() {
         <button className="btn" onClick={() => setScanOpen(true)}>
           Scansiona barcode
         </button>
+        <a className="btn" href="/products/new">
+          Nuovo prodotto
+        </a>
       </div>
       {msg && <div className="text-sm text-red-600">{msg}</div>}
       <div className="grid md:grid-cols-3 gap-3">
@@ -212,6 +235,25 @@ export default function ProductsPage() {
                 {p.brand} • SKU {p.sku} {p.barcode ? `• ${p.barcode}` : ""}
               </div>
               <div className="text-sm">Prezzo: {p.price ?? "-"}</div>
+              <div className="text-xs text-gray-500 mt-1">
+                {p.stock && p.stock.length ? (
+                  <div className="flex flex-wrap gap-1">
+                    {p.stock.map((s) => (
+                      <span
+                        key={`${p.id}-${s.location_id}`}
+                        className={`px-2 py-1 rounded-full ${s.location_id === currentLocationId ? "bg-black text-white" : "bg-gray-200"}`}
+                      >
+                        {getLocationName(s.location_id)}: {s.qty}
+                      </span>
+                    ))}
+                    <span className="px-2 py-1 rounded-full bg-gray-100 font-semibold text-gray-700">
+                      Totale: {p.total_qty ?? 0}
+                    </span>
+                  </div>
+                ) : (
+                  <span>Nessuno stock registrato</span>
+                )}
+              </div>
             </div>
             <div className="ml-auto flex gap-2 flex-wrap">
               <a className="btn" href={`/products/edit/${p.id}`}>
@@ -231,25 +273,29 @@ export default function ProductsPage() {
                 Elimina
               </button>
               <button
-                className="btn"
+                className={`btn ${!currentLocationId ? "opacity-60 cursor-not-allowed" : ""}`}
                 onClick={async () => {
+                  if (!currentLocationId) {
+                    setMsg("Seleziona una location per usare la vendita rapida.");
+                    openSelector();
+                    return;
+                  }
                   try {
-                    if (!defaultLocationId) { setMsg("Nessuna sede: crea una Location prima di vendere"); return; }
                     await api.post("/stock/movement", {
                       product_id: p.id,
                       type: "sell",
                       qty_change: 1,
-                      from_location_id: defaultLocationId,
+                      from_location_id: currentLocationId,
                       to_location_id: null,
                       note: "Vendita rapida",
                     });
-                    setMsg("Venduto 1");
+                    setMsg(`Venduto 1 da ${currentLocation?.name}`);
                   } catch (e: any) {
                     setMsg(e?.response?.data?.detail || "Errore vendita");
                   }
                 }}
               >
-                Vendi 1
+                {currentLocationId ? `Vendi 1 (${currentLocationName})` : "Scegli una location"}
               </button>
             </div>
           </div>

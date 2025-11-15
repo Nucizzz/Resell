@@ -2,10 +2,12 @@
 import React, { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { LocationProvider } from "./contexts/LocationContext";
 import Topbar from "./components/Topbar";
 import BottomNav from "./components/BottomNav";
 import Toaster from "./components/Toaster";
 import { useToast } from "./hooks/useToast";
+import LocationSelector from "./components/LocationSelector";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import ProductsPage from "./pages/ProductsPage";
@@ -198,6 +200,7 @@ function AppContent() {
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
       <Toaster toasts={toast.toasts} />
+      <LocationSelector />
     </ToastContext.Provider>
   );
 }
@@ -205,7 +208,9 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <LocationProvider>
+        <AppContent />
+      </LocationProvider>
     </AuthProvider>
   );
 }

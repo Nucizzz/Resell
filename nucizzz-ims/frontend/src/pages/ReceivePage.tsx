@@ -1,8 +1,10 @@
 // frontend/src/pages/ReceivePage.tsx
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { api } from "../api";
 import Scanner from "../components/Scanner";
 import { lookupBarcode } from "../lib/barcode-lookup";
+import { useLocationSelection } from "../contexts/LocationContext";
+import { useNavigate } from "react-router-dom";
 
 export default function ReceivePage() {
   const [form, setForm] = useState({
@@ -15,33 +17,21 @@ export default function ReceivePage() {
     cost_eur: "" as string | number,
     weight_g: "" as string | number,
     package_required: "",
-    location: "",
     image_url: "",
   });
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [locations, setLocations] = useState<{ id: number; name: string }[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loadingBarcode, setLoadingBarcode] = useState(false);
   const [existingProduct, setExistingProduct] = useState<any>(null);
   const [showAddStockDialog, setShowAddStockDialog] = useState(false);
   const [addStockQty, setAddStockQty] = useState(1);
-  const [addStockLocation, setAddStockLocation] = useState("");
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await api.get("/locations/");
-        const payload = r.data;
-        setLocations(Array.isArray(payload) ? payload : []);
-        if (!Array.isArray(payload)) {
-          setErr("Risposta locations non valida");
-        }
-      } catch {
-        setErr("Errore caricamento locations");
-      }
-    })();
-  }, []);
+  const { mode, location: currentLocation, openSelector } = useLocationSelection();
+  const activeLocationId = mode === "location" ? currentLocation?.id ?? null : null;
+  const activeLocationName = mode === "location" ? currentLocation?.name ?? "" : "";
+  const [manualLocationBarcode, setManualLocationBarcode] = useState("");
+  const [notRegisteredBarcode, setNotRegisteredBarcode] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   async function checkExistingProduct(barcode: string) {
     try {
@@ -53,11 +43,12 @@ export default function ReceivePage() {
   }
 
   async function addStockToExisting() {
-    if (!existingProduct || !addStockLocation) {
-      setErr("Seleziona una location");
+    if (!existingProduct || !activeLocationId) {
+      setErr("Seleziona una location operativa per aggiungere stock");
+      if (!activeLocationId) openSelector();
       return;
     }
-    
+
     setMsg(null);
     setErr(null);
     try {
@@ -66,16 +57,87 @@ export default function ReceivePage() {
         type: "in",
         qty_change: addStockQty,
         from_location_id: null,
-        to_location_id: locations.find(l => l.name === addStockLocation)?.id || null,
+        to_location_id: activeLocationId,
         note: "Ricezione merce",
       });
-      setMsg(`Aggiunte ${addStockQty} unità in "${addStockLocation}" per prodotto #${existingProduct.id}`);
+      setMsg(`Aggiunte ${addStockQty} unità in "${activeLocationName}" per prodotto #${existingProduct.id}`);
       setShowAddStockDialog(false);
       setExistingProduct(null);
       setAddStockQty(1);
-      setAddStockLocation("");
     } catch (e: any) {
       setErr(e?.response?.data?.detail || e.message || "Errore aggiunta stock");
+    }
+  }
+
+  async function handleLocationScan(code: string) {
+    if (!activeLocationId) return;
+    setManualLocationBarcode(code);
+    setLoadingBarcode(true);
+    setErr(null);
+    setMsg(null);
+    setExistingProduct(null);
+    setShowAddStockDialog(false);
+    setNotRegisteredBarcode(null);
+
+    const existing = await checkExistingProduct(code);
+    if (existing) {
+      setExistingProduct(existing);
+      setShowAddStockDialog(true);
+      setLoadingBarcode(false);
+      return;
+    }
+
+    setNotRegisteredBarcode(code);
+    setLoadingBarcode(false);
+  }
+
+  async function handleGeneralScan(code: string) {
+    setForm((f) => ({ ...f, barcode: code }));
+    setLoadingBarcode(true);
+    setErr(null);
+    setMsg(null);
+    setExistingProduct(null);
+
+    const existing = await checkExistingProduct(code);
+
+    if (existing) {
+      setExistingProduct(existing);
+      setShowAddStockDialog(true);
+      setLoadingBarcode(false);
+      return;
+    }
+
+    try {
+      const productInfo = await lookupBarcode(code);
+      if (productInfo) {
+        setForm((f) => ({
+          ...f,
+          barcode: code,
+          title: productInfo.title || "",
+          brand: productInfo.brand || "",
+          description: productInfo.description || "",
+          image_url: productInfo.image_url || "",
+          weight_g: productInfo.weight || "",
+        }));
+        setMsg("Informazioni prodotto caricate automaticamente dal database barcode!");
+      } else {
+        setForm((f) => ({ ...f, barcode: code }));
+        setMsg("Barcode scansionato. Inserisci le informazioni prodotto.");
+      }
+    } catch (e) {
+      console.warn("Errore ricerca barcode:", e);
+      setForm((f) => ({ ...f, barcode: code }));
+      setMsg("Barcode scansionato. Inserisci le informazioni prodotto.");
+    } finally {
+      setLoadingBarcode(false);
+    }
+  }
+
+  async function handleScan(code: string) {
+    if (activeLocationId) {
+      await handleLocationScan(code);
+    } else {
+      await handleGeneralScan(code);
     }
   }
 
@@ -93,11 +155,12 @@ export default function ReceivePage() {
         price_eur: form.price_eur ? Number(form.price_eur) : null,
         cost_eur: form.cost_eur ? Number(form.cost_eur) : null,
         weight_g: form.weight_g ? Number(form.weight_g) : null,
+        location: activeLocationName || undefined,
       });
       setMsg(
         `Prodotto creato${
           res.data?.shopify_product_id ? " e sincronizzato su Shopify" : ""
-        }: #${res.data?.id}${form.location ? ` - Stock aggiunto in "${form.location}"` : ""}`
+        }: #${res.data?.id}${activeLocationName ? ` - Stock aggiunto in "${activeLocationName}"` : ""}`
       );
       // pulizia form dopo salvataggio
       setForm({
@@ -110,7 +173,6 @@ export default function ReceivePage() {
         cost_eur: "",
         weight_g: "",
         package_required: "",
-        location: form.location, // Mantieni la location selezionata
         image_url: "",
       });
       setExistingProduct(null);
@@ -122,124 +184,154 @@ export default function ReceivePage() {
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold">Ricezione merce</h2>
+      <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-4 text-sm">
+        {activeLocationId ? (
+          <p>
+            Operi su <span className="font-semibold">{currentLocation?.name}</span>. Tutto lo stock verrà aggiunto automaticamente a questa sede.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <p>
+              Modalità generale attiva: registri solo l'anagrafica dei prodotti senza aggiungere stock.
+            </p>
+            <button className="btn" onClick={openSelector}>Scegli una location</button>
+          </div>
+        )}
+      </div>
 
-      <Scanner
-        onDetected={async (code) => {
-          setForm((f) => ({ ...f, barcode: code }));
-          setLoadingBarcode(true);
-          setErr(null);
-          setMsg(null);
-          setExistingProduct(null);
-          
-          // Verifica se il prodotto esiste già
-          const existing = await checkExistingProduct(code);
-          
-          if (existing) {
-            // Prodotto esistente: mostra dialog per aggiungere stock
-            setExistingProduct(existing);
-            setShowAddStockDialog(true);
-            setLoadingBarcode(false);
-            return;
-          }
-          
-          // Prodotto non esiste: cerca informazioni e mostra form
-          try {
-            const productInfo = await lookupBarcode(code);
-            if (productInfo) {
-              setForm((f) => ({
-                ...f,
-                barcode: code,
-                title: productInfo.title || "",
-                brand: productInfo.brand || "",
-                description: productInfo.description || "",
-                image_url: productInfo.image_url || "",
-                weight_g: productInfo.weight || "",
-              }));
-              setMsg("Informazioni prodotto caricate automaticamente dal database barcode!");
-            } else {
-              setForm((f) => ({ ...f, barcode: code }));
-              setMsg("Barcode scansionato. Inserisci le informazioni prodotto.");
-            }
-          } catch (e) {
-            console.warn("Errore ricerca barcode:", e);
-            setForm((f) => ({ ...f, barcode: code }));
-            setMsg("Barcode scansionato. Inserisci le informazioni prodotto.");
-          } finally {
-            setLoadingBarcode(false);
-          }
-        }}
-        onError={(m) => setErr(m)}
-      />
-      
-      {loadingBarcode && (
+      <Scanner onDetected={handleScan} onError={(m) => setErr(m)} />
+
+      {loadingBarcode && !activeLocationId && (
         <div className="text-sm text-blue-600">Ricerca informazioni prodotto...</div>
       )}
 
-      {/* Dialog per aggiungere stock a prodotto esistente */}
-      {showAddStockDialog && existingProduct && (
-        <div className="card bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-300 dark:border-blue-700 p-4 space-y-4">
+      {/* Sezione operativa per le location */}
+      {activeLocationId && (
+        <div className="space-y-3">
+          <div className="flex gap-2 items-end flex-wrap">
+            <div>
+              <div className="text-xs text-gray-600">Barcode manuale</div>
+              <input
+                className="input"
+                placeholder="Inserisci barcode"
+                value={manualLocationBarcode}
+                onChange={(e) => setManualLocationBarcode(e.target.value)}
+              />
+            </div>
+            <button
+              className="btn"
+              onClick={() => {
+                if (manualLocationBarcode) {
+                  handleLocationScan(manualLocationBarcode);
+                }
+              }}
+            >
+              Cerca
+            </button>
+          </div>
+
+          {loadingBarcode && (
+            <div className="text-xs text-gray-500">Sto cercando il prodotto…</div>
+          )}
+
+          {/* Dialog per aggiungere stock a prodotto esistente */}
+          {showAddStockDialog && existingProduct && (
+            <div className="card bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-300 dark:border-blue-700 p-4 space-y-4">
+              <div>
+                <h3 className="font-semibold text-lg">Prodotto trovato</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  <strong>{existingProduct.title}</strong> (Barcode: {existingProduct.barcode || "N/A"})
+                </p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  SKU: {existingProduct.sku} • Brand: {existingProduct.brand || "N/A"}
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-medium">Quantità da aggiungere</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={addStockQty}
+                    onChange={(e) => setAddStockQty(Math.max(1, Number(e.target.value) || 1))}
+                    className="input mt-1"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Location</label>
+                  <div className="input mt-1 bg-gray-100 dark:bg-gray-800">
+                    {activeLocationName || "Nessuna"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={addStockToExisting} className="btn bg-green-600 text-white hover:bg-green-700">
+                  Aggiungi Stock
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAddStockDialog(false);
+                    setExistingProduct(null);
+                    setAddStockQty(1);
+                  }}
+                  className="btn bg-gray-200 hover:bg-gray-300"
+                >
+                  Annulla
+                </button>
+              </div>
+            </div>
+          )}
+
+          {notRegisteredBarcode && (
+            <div className="card border border-dashed border-red-300 bg-red-50/60 dark:bg-red-900/20 space-y-3">
+              <div className="font-semibold">Barcode non registrato</div>
+              <p className="text-sm text-gray-600">
+                Il codice <strong>{notRegisteredBarcode}</strong> non è presente nel sistema. Registra prima il prodotto e poi
+                potrai aggiungere lo stock alla sede.
+              </p>
+              <button
+                className="btn bg-black text-white"
+                onClick={() => navigate(`/products/new?barcode=${encodeURIComponent(notRegisteredBarcode)}`)}
+              >
+                Vai alla pagina "Nuovo prodotto"
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Dialog per aggiungere stock a prodotto esistente in modalità generale */}
+      {!activeLocationId && showAddStockDialog && existingProduct && (
+        <div className="card bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-300 dark:border-blue-700 p-4 space-y-3">
           <div>
             <h3 className="font-semibold text-lg">Prodotto già presente nel sistema</h3>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              <strong>{existingProduct.title}</strong> (Barcode: {existingProduct.barcode})
-            </p>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              SKU: {existingProduct.sku} • Brand: {existingProduct.brand || "N/A"}
+              <strong>{existingProduct.title}</strong> (Barcode: {existingProduct.barcode || "N/A"}) è già registrato.
             </p>
           </div>
-          
-          <div className="space-y-3">
-            <div>
-              <label className="text-sm font-medium">Quantità da aggiungere</label>
-              <input
-                type="number"
-                min="1"
-                value={addStockQty}
-                onChange={(e) => setAddStockQty(Number(e.target.value) || 1)}
-                className="input mt-1"
-              />
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium">Location</label>
-              <select
-                value={addStockLocation}
-                onChange={(e) => setAddStockLocation(e.target.value)}
-                className="input mt-1"
-                required
-              >
-                <option value="">Seleziona location</option>
-                {locations.map((l) => (
-                  <option key={l.id} value={l.name}>{l.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          
+          <p className="text-sm text-gray-600">
+            Per aggiungere stock a questo articolo seleziona prima la location operativa e poi scansiona nuovamente il codice.
+          </p>
           <div className="flex gap-2">
+            <button className="btn" onClick={openSelector}>Apri selettore location</button>
             <button
-              onClick={addStockToExisting}
-              className="btn bg-green-600 text-white hover:bg-green-700"
-            >
-              Aggiungi Stock
-            </button>
-            <button
+              className="btn bg-gray-200"
               onClick={() => {
                 setShowAddStockDialog(false);
                 setExistingProduct(null);
-                setAddStockQty(1);
-                setAddStockLocation("");
               }}
-              className="btn bg-gray-200 hover:bg-gray-300"
             >
-              Annulla
+              Chiudi
             </button>
           </div>
         </div>
       )}
 
-      {/* Form per nuovo prodotto (mostra solo se non c'è prodotto esistente) */}
-      {!showAddStockDialog && (
+      {/* Form per nuovo prodotto (mostra solo in modalità generale) */}
+      {!activeLocationId && !showAddStockDialog && (
         <>
           <div className="grid md:grid-cols-2 gap-3">
             <input
@@ -305,15 +397,6 @@ export default function ReceivePage() {
                 setForm({ ...form, package_required: e.target.value })
               }
             />
-            <div>
-              <div className="text-xs text-gray-600">Sede</div>
-              <select className="input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}>
-                <option value="">Seleziona</option>
-                {locations.map((l) => (
-                  <option key={l.id} value={l.name}>{l.name}</option>
-                ))}
-              </select>
-            </div>
             <input
               className="input"
               placeholder="URL immagine (opz.)"

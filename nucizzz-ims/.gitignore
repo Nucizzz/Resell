@@ -1,0 +1,2 @@
+# Ignore runtime artifacts
+backend/app/data/

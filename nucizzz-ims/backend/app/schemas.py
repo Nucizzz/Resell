@@ -44,15 +44,19 @@ class ReceiveCreate(BaseModel):
     location: Optional[str] = None
     image_url: Optional[str] = None
 
+class StockOut(BaseModel):
+    location_id: int
+    qty: int
+
 class ProductOut(ProductBase):
     id: int
     created_at: datetime
     class Config:
         from_attributes = True
 
-class StockOut(BaseModel):
-    location_id: int
-    qty: int
+class ProductWithStockOut(ProductOut):
+    stock: List[StockOut] = []
+    total_qty: int = 0
 
 class MovementCreate(BaseModel):
     product_id: int
@@ -61,6 +65,7 @@ class MovementCreate(BaseModel):
     from_location_id: Optional[int] = None
     to_location_id: Optional[int] = None
     note: Optional[str] = None
+    sale_price: Optional[float] = None
 
 class MovementOut(BaseModel):
     id: int

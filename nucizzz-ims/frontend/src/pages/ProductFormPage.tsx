@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 export default function ProductFormPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [form, setForm] = useState({
     sku: "",
     barcode: "",
@@ -44,6 +45,14 @@ export default function ProductFormPage() {
     }
     load();
   }, [id]);
+
+  useEffect(() => {
+    if (id) return;
+    const presetBarcode = searchParams.get("barcode");
+    if (presetBarcode) {
+      setForm((prev) => ({ ...prev, barcode: presetBarcode }));
+    }
+  }, [id, searchParams]);
 
   function set<K extends keyof typeof form>(k: K, v: any) {
     setForm({ ...form, [k]: v });

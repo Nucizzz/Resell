@@ -5,6 +5,7 @@ from .. import crud, schemas
 from typing import List, Optional
 from sqlalchemy import select, func
 from .. import models
+from ..sales_log import log_sale
 
 router = APIRouter(tags=["stock"])
 
@@ -34,13 +35,35 @@ def movement(m: schemas.MovementCreate, db: Session = Depends(get_db)):
         loc = m.to_location_id if m.type == "in" else m.from_location_id
         if not loc:
             raise HTTPException(400, "Location mancante")
-        # valida che la location esista
-        from sqlalchemy import select
-        from ..models import Location
-        if not db.scalar(select(Location).where(Location.id == loc)):
+        if m.qty_change <= 0:
+            raise HTTPException(400, "La quantità deve essere positiva")
+        location_obj = db.get(models.Location, loc)
+        if not location_obj:
             raise HTTPException(400, "Location inesistente")
         delta = m.qty_change if m.type == "in" else -abs(m.qty_change)
-        mv = crud.upsert_stock(db, m.product_id, loc, delta, m.type, m.note)
+        try:
+            mv = crud.upsert_stock(db, m.product_id, loc, delta, m.type, m.note)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        if m.type == "sell":
+            if m.sale_price is not None and m.sale_price < 0:
+                raise HTTPException(400, "Prezzo di vendita non valido")
+            product = db.get(models.Product, m.product_id)
+            if not product:
+                raise HTTPException(404, "Prodotto non trovato")
+            sale_price = m.sale_price if m.sale_price is not None else product.price
+            try:
+                log_sale(
+                    product_id=product.id,
+                    barcode=product.barcode,
+                    title=product.title,
+                    size=product.size,
+                    sale_price=sale_price,
+                    quantity=m.qty_change,
+                    location_name=location_obj.name,
+                )
+            except Exception as exc:  # pragma: no cover
+                raise HTTPException(500, f"Errore salvataggio registro vendite: {exc}")
         return mv
     elif m.type == "out":
         if not m.from_location_id:

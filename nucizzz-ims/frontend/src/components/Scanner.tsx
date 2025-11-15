@@ -22,6 +22,9 @@ export default function Scanner({ onDetected, onError }: Props) {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState<string | undefined>(undefined);
   const [torch, setTorch] = useState(false);
+  const [stabilizing, setStabilizing] = useState(false);
+  const pendingCodeRef = useRef<string | null>(null);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -136,29 +139,47 @@ export default function Scanner({ onDetected, onError }: Props) {
           }
         );
 
+        const finalizeDetection = (code: string) => {
+          try {
+            Quagga.stop();
+          } catch {}
+          try {
+            Quagga.offDetected(detected);
+          } catch {}
+          if (userStream) {
+            userStream.getTracks().forEach((track) => {
+              track.stop();
+              track.enabled = false;
+            });
+          }
+          pendingCodeRef.current = null;
+          if (confirmTimerRef.current) {
+            clearTimeout(confirmTimerRef.current);
+            confirmTimerRef.current = null;
+          }
+          setStabilizing(false);
+          setActive(false);
+          setTimeout(() => onDetected(code), 100);
+        };
+
         const detected = (data: any) => {
           if (!mounted) return;
           const code = data?.codeResult?.code;
-          if (code) {
-            // Ferma immediatamente scanner e telecamera
-            try {
-              Quagga.stop();
-              Quagga.offDetected(detected);
-            } catch {}
-            
-            if (userStream) {
-              userStream.getTracks().forEach(track => {
-                track.stop();
-                track.enabled = false;
-              });
-            }
-            
-            setActive(false);
-            // Chiama callback dopo un breve delay per assicurarsi che tutto sia pulito
-            setTimeout(() => {
-              onDetected(code);
-            }, 100);
+          if (!code) return;
+          setStabilizing(true);
+          if (pendingCodeRef.current && pendingCodeRef.current !== code) {
+            pendingCodeRef.current = code;
+          } else if (!pendingCodeRef.current) {
+            pendingCodeRef.current = code;
           }
+          if (confirmTimerRef.current) {
+            clearTimeout(confirmTimerRef.current);
+          }
+          confirmTimerRef.current = setTimeout(() => {
+            if (pendingCodeRef.current) {
+              finalizeDetection(pendingCodeRef.current);
+            }
+          }, 1800);
         };
         Quagga.onDetected(detected);
       } catch (e: any) {
@@ -211,6 +232,12 @@ export default function Scanner({ onDetected, onError }: Props) {
       } catch (e) {
         console.warn("Error cleaning up scanner:", e);
       }
+      pendingCodeRef.current = null;
+      if (confirmTimerRef.current) {
+        clearTimeout(confirmTimerRef.current);
+        confirmTimerRef.current = null;
+      }
+      setStabilizing(false);
     };
   }, [onDetected, deviceId, torch, active]);
 
@@ -244,6 +271,11 @@ export default function Scanner({ onDetected, onError }: Props) {
       {!active && !error && (
         <p className="text-sm text-gray-600">
           Premi "Scansiona" per usare la fotocamera posteriore.
+        </p>
+      )}
+      {active && stabilizing && (
+        <p className="text-xs text-blue-600">
+          Sto stabilizzando la lettura, attendi un attimo…
         </p>
       )}
       {error && <p className="text-red-600">{error}</p>}
