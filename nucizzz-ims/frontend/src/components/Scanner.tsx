@@ -1,19 +1,13 @@
-// frontend/src/components/Scanner.tsx
-import React, { useEffect, useRef, useState } from "react";
-import Quagga from "@ericblade/quagga2";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import Quagga, { type QuaggaJSResultObject } from "@ericblade/quagga2";
 
-type Props = {
-  onDetected: (code: string) => void;
+export type ScannerProps = {
+  onDetected: (code: string) => void | Promise<void>;
   onError?: (message: string) => void;
+  enableCode128?: boolean;
 };
 
-const SCAN_READERS = [
-  "ean_reader",
-  "ean_8_reader",
-  "upc_reader",
-  "upc_e_reader",
-  "code_128_reader",
-];
+const BASE_READERS = ["ean_reader", "ean_8_reader", "upc_reader", "upc_e_reader"] as const;
 
 type DetectionHit = {
   code: string;
@@ -27,8 +21,12 @@ const CONFIDENCE_THRESHOLD = 0.15;
 
 export default function Scanner({ onDetected, onError }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [active, setActive] = useState(false);
+  const detectionHits = useRef<Map<string, number[]>>(new Map());
+  const finalizingRef = useRef(false);
+  const videoTrackRef = useRef<MediaStreamTrack | null>(null);
+  const [status, setStatus] = useState(DEFAULT_STATUS);
   const [error, setError] = useState<string | null>(null);
+  const [running, setRunning] = useState(true);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState<string | undefined>(undefined);
   const [torch, setTorch] = useState(false);
@@ -38,37 +36,38 @@ export default function Scanner({ onDetected, onError }: Props) {
   const lockedRef = useRef(false);
 
   useEffect(() => {
-    let mounted = true;
-    async function enumerateCameras() {
+    let active = true;
+    async function enumerate() {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-        });
-        const all = await navigator.mediaDevices.enumerateDevices();
-        const cams = all.filter((d) => d.kind === "videoinput");
-        if (!mounted) return;
+        await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
+      } catch (err) {
+        console.warn("Camera permission pending", err);
+      }
+      try {
+        const available = await navigator.mediaDevices.enumerateDevices();
+        if (!active) return;
+        const cams = available.filter((d) => d.kind === "videoinput");
         setDevices(cams);
-        // preferisci camera esterna: evita label che contengono "Integrated" o "Front"
-        const preferred =
-          cams.find((c) => /usb|external|rear|environment/i.test(c.label)) ||
-          cams.find((c) => !/integrated|front/i.test(c.label)) ||
-          cams[cams.length - 1];
-        setDeviceId(preferred?.deviceId);
-        stream.getTracks().forEach((t) => t.stop());
-      } catch (e) {
-        console.warn("No camera permission yet:", e);
+        if (!deviceId && cams.length) {
+          setDeviceId(getPreferredCamera(cams));
+        }
+      } catch (err) {
+        console.error("Unable to enumerate cameras", err);
       }
     }
-    enumerateCameras();
+    enumerate();
     return () => {
-      mounted = false;
+      active = false;
     };
-  }, []);
+  }, [deviceId]);
 
   useEffect(() => {
-    if (!containerRef.current || !active) return;
-    let mounted = true;
-    let userStream: MediaStream | null = null;
+    if (!running) {
+      stopScanner();
+      return;
+    }
+    if (!containerRef.current) return;
 
     async function start() {
       try {
@@ -98,14 +97,49 @@ export default function Scanner({ onDetected, onError }: Props) {
               frameRate: { ideal: 15, max: 24 },
             },
           });
+        });
+        if (cancelled) return;
+        await Quagga.start();
+        setStatus(DEFAULT_STATUS);
+        const activeTrack: MediaStreamTrack | undefined = (Quagga as any)?.CameraAccess?.getActiveTrack?.();
+        if (activeTrack) {
+          videoTrackRef.current = activeTrack;
+          await tuneTrack(activeTrack, torchOn, setTorchAvailable);
         } else {
-          userStream = await navigator.mediaDevices.getUserMedia({ video: constraints });
+          videoTrackRef.current = null;
+          setTorchAvailable(false);
         }
+      } catch (err) {
+        console.error("Quagga init failed", err);
+        if (cancelled) return;
+        const message = "Impossibile avviare lo scanner";
+        setError(message);
+        onError?.(message);
+        stopScanner();
+        return;
+      }
 
-        if (!mounted || !containerRef.current) {
-          userStream?.getTracks().forEach(track => track.stop());
-          return;
+      const handler = (result: QuaggaJSResultObject) => {
+        if (cancelled || finalizingRef.current) return;
+        const rawCode = result?.codeResult?.code;
+        const confidence = typeof result?.codeResult?.confidence === "number" ? result.codeResult.confidence : 0;
+        const digits = sanitizeCode(rawCode);
+        if (!digits || confidence < CONFIDENCE_THRESHOLD) return;
+        if (!isValidBarcode(digits)) return;
+
+        const now = Date.now();
+        pruneHits(now);
+        const bucket = detectionHits.current.get(digits) ?? [];
+        bucket.push(now);
+        detectionHits.current.set(digits, bucket.filter((ts) => now - ts <= DETECTION_WINDOW_MS));
+        const confirmations = detectionHits.current.get(digits)?.length ?? 0;
+
+        if (confirmations >= MIN_CONFIRMATIONS) {
+          finalizeDetection(digits);
+        } else {
+          setStatus(`Sto verificando ${digits} (${confirmations}/${MIN_CONFIRMATIONS})…`);
         }
+      };
 
         // Pulisci eventuali istanze precedenti
         try {
@@ -210,8 +244,19 @@ export default function Scanner({ onDetected, onError }: Props) {
         userStream?.getTracks().forEach(track => track.stop());
       }
     }
+  };
 
-    start();
+  const captureFrame = () => {
+    const video = containerRef.current?.querySelector("video");
+    if (!video || !video.videoWidth || !video.videoHeight) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  };
 
     return () => {
       mounted = false;
@@ -251,11 +296,36 @@ export default function Scanner({ onDetected, onError }: Props) {
             }
           }
         }
-      } catch (e) {
-        console.warn("Error cleaning up scanner:", e);
+      );
+    });
+  };
+
+  const stopScanner = () => {
+    try {
+      Quagga.stop();
+    } catch (err) {
+      console.warn("Quagga stop warning", err);
+    }
+    const video = containerRef.current?.querySelector("video");
+    const stream = video?.srcObject as MediaStream | null;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      if (video) {
+        video.srcObject = null;
       }
-    };
-  }, [onDetected, deviceId, torch, active]);
+    }
+    videoTrackRef.current = null;
+    setTorchAvailable(false);
+  };
+
+  const onDeviceChange = (value: string) => {
+    setDeviceId(value);
+    detectionHits.current.clear();
+  };
+
+  const toggleTorch = () => {
+    setTorchOn((prev) => !prev);
+  };
 
   const startScan = () => {
     detectionHistory.current = [];
@@ -324,4 +394,36 @@ export default function Scanner({ onDetected, onError }: Props) {
       {error && <p className="text-red-600">{error}</p>}
     </div>
   );
+}
+
+async function tuneTrack(
+  track: MediaStreamTrack,
+  torchOn: boolean,
+  setTorchAvailable: (value: boolean) => void,
+) {
+  const capabilities = track.getCapabilities?.();
+  if (!capabilities) {
+    setTorchAvailable(false);
+    return;
+  }
+  const advanced: MediaTrackConstraints & { torch?: boolean; focusMode?: string } = {};
+  if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes("continuous")) {
+    (advanced as any).focusMode = "continuous";
+  }
+  if (capabilities.zoom) {
+    const desired = clamp(2, capabilities.zoom.min ?? 1, capabilities.zoom.max ?? 4);
+    advanced.zoom = desired;
+  }
+  if ("torch" in capabilities && typeof capabilities.torch === "boolean") {
+    setTorchAvailable(true);
+    (advanced as any).torch = torchOn;
+  } else {
+    setTorchAvailable(false);
+  }
+  if (Object.keys(advanced).length === 0) return;
+  try {
+    await track.applyConstraints({ advanced: [advanced] });
+  } catch (err) {
+    console.warn("Unable to apply advanced constraints", err);
+  }
 }

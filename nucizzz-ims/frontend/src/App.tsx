@@ -1,5 +1,5 @@
 // frontend/src/App.tsx
-import React, { useEffect } from "react";
+import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { LocationProvider } from "./contexts/LocationContext";
@@ -37,15 +37,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AppContent() {
   const toast = useToast();
-  const { isAuthenticated } = useAuth();
-  
-  // Se non autenticato, reindirizza sempre al login
-  useEffect(() => {
-    if (!isAuthenticated && window.location.pathname !== "/login") {
-      window.location.href = "/login";
-    }
-  }, [isAuthenticated]);
-  
   return (
     <ToastContext.Provider value={toast}>
       <Routes>
@@ -54,7 +45,11 @@ function AppContent() {
           path="/dashboard"
           element={
             <ProtectedRoute>
-              <DashboardPage />
+              <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-4 space-y-4 pb-24">
+                <Topbar />
+                <DashboardPage />
+              </div>
+              <BottomNav />
             </ProtectedRoute>
           }
         />

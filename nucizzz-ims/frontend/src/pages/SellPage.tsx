@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
-import Scanner from "../components/Scanner"; // tuo scanner
+import SearchWithScanner from "../components/SearchWithScanner";
 import { useLocationSelection } from "../contexts/LocationContext";
 
 export default function SellPage() {
-  const [barcode, setBarcode] = useState("");
   const [product, setProduct] = useState<any>(null);
   const [products, setProducts] = useState<any[]>([]);
   const [productsWithStock, setProductsWithStock] = useState<any[]>([]);
@@ -40,7 +39,6 @@ export default function SellPage() {
   }
 
   async function onDetected(code: string) {
-    setBarcode(code);
     setProduct(null);
     setProducts([]);
     setProductsWithStock([]);
@@ -163,14 +161,12 @@ export default function SellPage() {
   return (
     <div className="p-4 space-y-3">
       <h1 className="text-xl font-semibold">Vendi</h1>
-      <Scanner onDetected={onDetected} />
-      <div className="flex gap-2 items-end">
-        <div>
-          <div className="text-xs text-gray-600">Barcode manuale</div>
-          <input className="input" placeholder="Inserisci barcode" value={barcode} onChange={(e) => setBarcode(e.target.value)} />
-        </div>
-        <button className="btn" onClick={searchBarcode}>Cerca</button>
-      </div>
+      <SearchWithScanner
+        placeholder="Scansiona o cerca barcode"
+        onTextSearch={onDetected}
+        onBarcodeDetected={onDetected}
+        mockApis={false}
+      />
       <div className="flex flex-wrap gap-4 items-end">
         <div>
           <div className="text-xs text-gray-600">Quantità</div>
