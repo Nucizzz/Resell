@@ -20,6 +20,7 @@ import LocationsPage from "./pages/LocationsPage";
 import InventoryPage from "./pages/InventoryPage";
 import SalesHistoryPage from "./pages/SalesHistoryPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
+import AddStockPage from "./pages/AddStockPage";
 
 export const ToastContext = React.createContext<ReturnType<typeof useToast>>({} as any);
 
@@ -84,6 +85,18 @@ function AppContent() {
               <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-4 space-y-4 pb-24">
                 <Topbar />
                 <ReceivePage />
+              </div>
+              <BottomNav />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/stock/add"
+          element={
+            <ProtectedRoute>
+              <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-4 space-y-4 pb-24">
+                <Topbar />
+                <AddStockPage />
               </div>
               <BottomNav />
             </ProtectedRoute>

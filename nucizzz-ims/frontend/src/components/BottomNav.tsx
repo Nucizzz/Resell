@@ -16,6 +16,10 @@ export default function BottomNav() {
         <span>⬇️</span>
         <span>Ricevi</span>
       </NavLink>
+      <NavLink to="/stock/add" className={({ isActive }) => `${link} ${isActive ? active : idle}`}>
+        <span>➕</span>
+        <span>Stock</span>
+      </NavLink>
       <NavLink to="/sell" className={({ isActive }) => `${link} ${isActive ? active : idle}`}>
         <span>⬆️</span>
         <span>Vendi</span>
