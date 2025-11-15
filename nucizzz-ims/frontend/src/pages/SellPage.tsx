@@ -16,7 +16,7 @@ export default function SellPage() {
   const [loadingStock, setLoadingStock] = useState(false);
   const [searching, setSearching] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [priceEditorVisible, setPriceEditorVisible] = useState(false);
+  const [priceModalOpen, setPriceModalOpen] = useState(false);
 
   const { mode, location: currentLocation, locations, openSelector } = useLocationSelection();
   const activeLocationId = mode === "location" ? currentLocation?.id ?? null : null;
@@ -34,7 +34,7 @@ export default function SellPage() {
     setProducts([]);
     setProductsWithStock([]);
     setSalePrice("");
-    setPriceEditorVisible(false);
+    setPriceModalOpen(false);
     setAvailableStock(null);
     setMsg("");
     setSearching(true);
@@ -67,7 +67,7 @@ export default function SellPage() {
         setProduct(res.data);
         setProducts([res.data]);
         setSalePrice(res.data?.price ? String(res.data.price) : "");
-        setPriceEditorVisible(false);
+        setPriceModalOpen(false);
         loadStockForProduct(res.data.id);
         setMsg("");
       }
@@ -86,7 +86,7 @@ export default function SellPage() {
   function selectProduct(p: any) {
     setProduct(p);
     setSalePrice(p.price ? String(p.price) : "");
-    setPriceEditorVisible(false);
+    setPriceModalOpen(false);
     loadStockForProduct(p.id);
   }
 
@@ -119,10 +119,6 @@ export default function SellPage() {
       setMsg("Stock insufficiente in questa sede.");
       return;
     }
-    if (!priceEditorVisible) {
-      setMsg("Conferma o modifica prima il prezzo di vendita.");
-      return;
-    }
     try {
       setSubmitting(true);
       await api.post("/stock/movement", {
@@ -135,14 +131,30 @@ export default function SellPage() {
         sale_price: Number(salePrice),
       });
       setMsg(`Venduto ${qty} pz in ${locationName} a €${Number(salePrice).toFixed(2)}`);
-      setAvailableStock((prev) => (typeof prev === "number" ? prev - qty : prev));
+      setAvailableStock((prev) => (typeof prev === "number" ? Math.max(0, prev - qty) : prev));
       setQty(1);
-      setPriceEditorVisible(false);
+      setPriceModalOpen(false);
     } catch (e: any) {
       setMsg(e?.response?.data?.detail || "Errore vendita");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function openPriceModal() {
+    if (!product || !activeLocationId) {
+      setMsg("Seleziona una location operativa per registrare la vendita.");
+      if (!activeLocationId) openSelector();
+      return;
+    }
+    if ((availableStock ?? 0) < qty) {
+      setMsg("Stock insufficiente in questa sede.");
+      return;
+    }
+    if (!salePrice && product.price) {
+      setSalePrice(String(product.price));
+    }
+    setPriceModalOpen(true);
   }
 
   if (!activeLocationId) {
@@ -158,9 +170,10 @@ export default function SellPage() {
   }
 
   return (
-    <div className="p-4 space-y-3">
-      <h1 className="text-xl font-semibold">Vendi</h1>
-      <Scanner onDetected={onDetected} />
+    <>
+      <div className="p-4 space-y-3">
+        <h1 className="text-xl font-semibold">Vendi</h1>
+        <Scanner onDetected={onDetected} />
       <div className="flex gap-2 items-end">
         <div>
           <div className="text-xs text-gray-600">Barcode manuale</div>
@@ -229,43 +242,14 @@ export default function SellPage() {
             )}
             {loadingStock && <div className="text-xs text-gray-500">Calcolo stock…</div>}
           </div>
-          {!priceEditorVisible ? (
-            <button
-              className="btn"
-              onClick={() => {
-                if (!salePrice && product.price) {
-                  setSalePrice(String(product.price));
-                }
-                setPriceEditorVisible(true);
-              }}
-              disabled={loadingStock}
-            >
-              Abilita vendita
+          <div className="space-y-3">
+            <button className="btn" onClick={openPriceModal} disabled={loadingStock || (availableStock ?? 0) <= 0}>
+              Imposta prezzo e vendi
             </button>
-          ) : (
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <div className="text-sm font-medium">Prezzo di vendita</div>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={salePrice}
-                  placeholder={product.price ? String(product.price) : "Inserisci prezzo"}
-                  onChange={(e) => setSalePrice(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button className="btn bg-gray-100" onClick={() => setPriceEditorVisible(false)} disabled={submitting}>
-                  Cambia prodotto
-                </button>
-                <button className="btn" onClick={sellOne} disabled={submitting || !salePrice || Number(salePrice) <= 0}>
-                  {submitting ? "Registrazione..." : "Conferma vendita"}
-                </button>
-              </div>
+            <div className="text-xs text-gray-500">
+              Ti chiederemo il prezzo finale prima di scalare lo stock.
             </div>
-          )}
+          </div>
           {msg && (
             <div className="text-xs text-gray-700">{msg}</div>
           )}
@@ -285,5 +269,42 @@ export default function SellPage() {
         </div>
       )}
     </div>
+      {priceModalOpen && product && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-900 p-5 space-y-4 shadow-2xl">
+            <div>
+              <h3 className="text-lg font-semibold">Conferma prezzo di vendita</h3>
+              <p className="text-sm text-gray-500">
+                {product.title} • Barcode {product.barcode || "N/A"}
+              </p>
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Prezzo finale</label>
+              <input
+                className="input mt-1"
+                type="number"
+                min={0}
+                step={0.01}
+                value={salePrice}
+                placeholder={product.price ? String(product.price) : "Inserisci prezzo"}
+                onChange={(e) => setSalePrice(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2 justify-end">
+              <button className="btn bg-gray-200" onClick={() => setPriceModalOpen(false)} disabled={submitting}>
+                Annulla
+              </button>
+              <button
+                className="btn"
+                onClick={sellOne}
+                disabled={submitting || !salePrice || Number(salePrice) <= 0}
+              >
+                {submitting ? "Registrazione..." : "Conferma vendita"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
