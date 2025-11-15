@@ -31,7 +31,19 @@ export default function ReceivePage() {
   const activeLocationName = mode === "location" ? currentLocation?.name ?? "" : "";
   const [manualLocationBarcode, setManualLocationBarcode] = useState("");
   const [notRegisteredBarcode, setNotRegisteredBarcode] = useState<string | null>(null);
+  const [lastScannedBarcode, setLastScannedBarcode] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  function resetOperationalState() {
+    setManualLocationBarcode("");
+    setExistingProduct(null);
+    setShowAddStockDialog(false);
+    setAddStockQty(1);
+    setNotRegisteredBarcode(null);
+    setLastScannedBarcode(null);
+    setMsg(null);
+    setErr(null);
+  }
 
   async function checkExistingProduct(barcode: string) {
     try {
@@ -72,6 +84,7 @@ export default function ReceivePage() {
   async function handleLocationScan(code: string) {
     if (!activeLocationId) return;
     setManualLocationBarcode(code);
+    setLastScannedBarcode(code);
     setLoadingBarcode(true);
     setErr(null);
     setMsg(null);
@@ -93,6 +106,7 @@ export default function ReceivePage() {
 
   async function handleGeneralScan(code: string) {
     setForm((f) => ({ ...f, barcode: code }));
+    setLastScannedBarcode(code);
     setLoadingBarcode(true);
     setErr(null);
     setMsg(null);
@@ -201,6 +215,13 @@ export default function ReceivePage() {
 
       <Scanner onDetected={handleScan} onError={(m) => setErr(m)} />
 
+      {lastScannedBarcode && (
+        <div className="text-xs text-gray-500">
+          Ultimo barcode letto:
+          <span className="font-mono font-semibold ml-1">{lastScannedBarcode}</span>
+        </div>
+      )}
+
       {loadingBarcode && !activeLocationId && (
         <div className="text-sm text-blue-600">Ricerca informazioni prodotto...</div>
       )}
@@ -218,16 +239,22 @@ export default function ReceivePage() {
                 onChange={(e) => setManualLocationBarcode(e.target.value)}
               />
             </div>
-            <button
-              className="btn"
-              onClick={() => {
-                if (manualLocationBarcode) {
-                  handleLocationScan(manualLocationBarcode);
-                }
-              }}
-            >
-              Cerca
-            </button>
+            <div className="flex gap-2">
+              <button
+                className="btn"
+                onClick={() => {
+                  if (manualLocationBarcode) {
+                    handleLocationScan(manualLocationBarcode);
+                  }
+                }}
+                disabled={!manualLocationBarcode}
+              >
+                Cerca
+              </button>
+              <button className="btn bg-gray-100" onClick={resetOperationalState}>
+                Reset
+              </button>
+            </div>
           </div>
 
           {loadingBarcode && (
