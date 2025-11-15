@@ -45,7 +45,89 @@ export default function DashboardPage() {
     ? "Le azioni stock agiscono sulla sede selezionata"
     : "Modalità consultazione: aggiorna prodotti senza muovere stock";
 
-  const visibleCards = mode === "location" ? CARDS : CARDS.filter((card) => !["receive", "sell"].includes(card.id));
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
+
+  const menuItems = [
+    {
+      id: "products",
+      icon: <Package className="h-5 w-5" />,
+      title: "Prodotti",
+      description: "Gestisci il catalogo prodotti e le informazioni",
+      route: "/products",
+      area: "md:[grid-area:1/1/2/7] xl:[grid-area:1/1/2/5]",
+    },
+    {
+      id: "receive",
+      icon: <Box className="h-5 w-5" />,
+      title: "Ricezione Merce",
+      description: "Aggiungi nuovi prodotti tramite scansione barcode",
+      route: "/receive",
+      area: "md:[grid-area:1/7/2/13] xl:[grid-area:1/5/2/9]",
+    },
+    {
+      id: "addstock",
+      icon: <PlusCircle className="h-5 w-5" />,
+      title: "Aggiungi stock",
+      description: "Carica rapidamente pezzi tramite barcode o ricerca",
+      route: "/stock/add",
+      area: "md:[grid-area:2/1/3/7] xl:[grid-area:1/9/2/13]",
+    },
+    {
+      id: "sell",
+      icon: <ShoppingCart className="h-5 w-5" />,
+      title: "Vendita",
+      description: "Registra vendite e aggiorna lo stock",
+      route: "/sell",
+      area: "md:[grid-area:2/7/3/13] xl:[grid-area:2/1/3/5]",
+    },
+    {
+      id: "inventory",
+      icon: <Warehouse className="h-5 w-5" />,
+      title: "Inventario",
+      description: "Visualizza lo stock per location e prodotto",
+      route: "/inventory",
+      area: "md:[grid-area:3/1/4/7] xl:[grid-area:2/5/3/9]",
+    },
+    {
+      id: "transfers",
+      icon: <ArrowRight className="h-5 w-5" />,
+      title: "Trasferimenti",
+      description: "Sposta prodotti tra warehouse e negozio",
+      route: "/transfers",
+      area: "md:[grid-area:3/7/4/13] xl:[grid-area:2/9/3/13]",
+    },
+    {
+      id: "analytics",
+      icon: <TrendingUp className="h-5 w-5" />,
+      title: "Analytics",
+      description: "Statistiche vendite e performance",
+      route: "/analytics",
+      area: "md:[grid-area:4/1/5/7] xl:[grid-area:3/1/4/5]",
+    },
+    {
+      id: "sales",
+      icon: <Search className="h-5 w-5" />,
+      title: "Storico Vendite",
+      description: "Visualizza lo storico delle vendite",
+      route: "/sales",
+      area: "md:[grid-area:4/7/5/13] xl:[grid-area:3/5/4/9]",
+    },
+    {
+      id: "locations",
+      icon: <Settings className="h-5 w-5" />,
+      title: "Location",
+      description: "Gestisci warehouse e negozi",
+      route: "/locations",
+      area: "md:[grid-area:5/1/6/13] xl:[grid-area:3/9/4/13]",
+    },
+  ];
+
+  const filteredMenu = mode === "location"
+    ? menuItems
+    : menuItems.filter((item) => !["receive", "sell"].includes(item.id));
 
   return (
     <div className="space-y-6">
