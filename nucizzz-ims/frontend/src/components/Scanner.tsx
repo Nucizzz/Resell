@@ -15,6 +15,16 @@ const SCAN_READERS = [
   "code_128_reader",
 ];
 
+type DetectionHit = {
+  code: string;
+  ts: number;
+  confidence: number;
+};
+
+const DETECTION_WINDOW_MS = 3500;
+const MIN_CONFIRMATIONS = 3;
+const CONFIDENCE_THRESHOLD = 0.15;
+
 export default function Scanner({ onDetected, onError }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState(false);
@@ -22,6 +32,10 @@ export default function Scanner({ onDetected, onError }: Props) {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState<string | undefined>(undefined);
   const [torch, setTorch] = useState(false);
+  const [status, setStatus] = useState("Scanner fermo");
+  const detectionHistory = useRef<DetectionHit[]>([]);
+  const handlerRef = useRef<((data: any) => void) | null>(null);
+  const lockedRef = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -58,13 +72,14 @@ export default function Scanner({ onDetected, onError }: Props) {
 
     async function start() {
       try {
+        setStatus("Accensione fotocamera…");
         // Risoluzione ridotta per performance migliori
         const constraints: MediaTrackConstraints = {
           facingMode: { ideal: "environment" },
           deviceId: deviceId ? { exact: deviceId } : undefined,
-          width: { ideal: 640, max: 640 },
-          height: { ideal: 480, max: 480 },
-          frameRate: { ideal: 15, max: 20 },
+          width: { ideal: 960, max: 1280 },
+          height: { ideal: 720, max: 720 },
+          frameRate: { ideal: 15, max: 24 },
         };
 
         // prova a settare la torcia (non tutti i browser lo supportano)
@@ -74,14 +89,14 @@ export default function Scanner({ onDetected, onError }: Props) {
 
         // Se deviceId non è ancora disponibile, prova comunque
         if (!deviceId) {
-          // Usa constraints senza deviceId specifico - risoluzione ridotta
-          userStream = await navigator.mediaDevices.getUserMedia({ 
+          // Usa constraints senza deviceId specifico
+          userStream = await navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: { ideal: "environment" },
-              width: { ideal: 640, max: 640 },
-              height: { ideal: 480, max: 480 },
-              frameRate: { ideal: 15, max: 20 },
-            }
+              width: { ideal: 960, max: 1280 },
+              height: { ideal: 720, max: 720 },
+              frameRate: { ideal: 15, max: 24 },
+            },
           });
         } else {
           userStream = await navigator.mediaDevices.getUserMedia({ video: constraints });
@@ -104,15 +119,19 @@ export default function Scanner({ onDetected, onError }: Props) {
               target: containerRef.current,
               constraints: deviceId ? constraints : {
                 facingMode: { ideal: "environment" },
-                width: { ideal: 640, max: 640 },
-                height: { ideal: 480, max: 480 },
-                frameRate: { ideal: 15, max: 20 },
+                width: { ideal: 960, max: 1280 },
+                height: { ideal: 720, max: 720 },
+                frameRate: { ideal: 15, max: 24 },
               },
+              area: { top: "20%", right: "15%", left: "15%", bottom: "20%" },
             },
             decoder: { readers: SCAN_READERS as any },
+            locator: { patchSize: "medium", halfSample: true },
             locate: true,
-            numOfWorkers: 1, // Ridotto a 1 per performance migliori
-            frequency: 10, // Controlla ogni 10 frame invece di ogni frame
+            numOfWorkers: typeof navigator !== "undefined" && navigator.hardwareConcurrency
+              ? Math.min(2, navigator.hardwareConcurrency)
+              : 1,
+            frequency: 4,
           },
           (err: unknown) => {
             if (!mounted) {
@@ -129,6 +148,7 @@ export default function Scanner({ onDetected, onError }: Props) {
             }
             try {
               Quagga.start();
+              setStatus("Allinea il barcode al riquadro centrale e tienilo fermo qualche secondo.");
             } catch (startErr) {
               console.error("Quagga start error:", startErr);
               userStream?.getTracks().forEach(track => track.stop());
@@ -137,29 +157,48 @@ export default function Scanner({ onDetected, onError }: Props) {
         );
 
         const detected = (data: any) => {
-          if (!mounted) return;
+          if (!mounted || lockedRef.current) return;
           const code = data?.codeResult?.code;
-          if (code) {
-            // Ferma immediatamente scanner e telecamera
+          const confidence = typeof data?.codeResult?.confidence === "number"
+            ? data.codeResult.confidence
+            : 0;
+          if (!code) return;
+
+          const now = Date.now();
+          detectionHistory.current = detectionHistory.current.filter((hit) => now - hit.ts < DETECTION_WINDOW_MS);
+          detectionHistory.current.push({ code, confidence, ts: now });
+
+          const confirmations = detectionHistory.current.filter(
+            (hit) => hit.code === code && hit.confidence >= CONFIDENCE_THRESHOLD,
+          ).length;
+
+          if (confirmations >= MIN_CONFIRMATIONS) {
+            lockedRef.current = true;
+            setStatus(`Codice confermato (${code}).`);
             try {
-              Quagga.stop();
               Quagga.offDetected(detected);
+              if (handlerRef.current === detected) {
+                handlerRef.current = null;
+              }
+              Quagga.stop();
             } catch {}
-            
+
             if (userStream) {
-              userStream.getTracks().forEach(track => {
+              userStream.getTracks().forEach((track) => {
                 track.stop();
                 track.enabled = false;
               });
             }
-            
-            setActive(false);
-            // Chiama callback dopo un breve delay per assicurarsi che tutto sia pulito
+
             setTimeout(() => {
+              setActive(false);
               onDetected(code);
-            }, 100);
+            }, 150);
+          } else {
+            setStatus(`Sto verificando ${code} (${confirmations}/${MIN_CONFIRMATIONS})…`);
           }
         };
+        handlerRef.current = detected;
         Quagga.onDetected(detected);
       } catch (e: any) {
         if (!mounted) return;
@@ -167,6 +206,7 @@ export default function Scanner({ onDetected, onError }: Props) {
         const msg = e?.message || "Impossibile accedere alla fotocamera";
         setError(msg);
         onError?.(msg);
+        setStatus("Errore fotocamera");
         userStream?.getTracks().forEach(track => track.stop());
       }
     }
@@ -177,7 +217,10 @@ export default function Scanner({ onDetected, onError }: Props) {
       mounted = false;
       try {
         // Rimuovi listener
-        Quagga.offDetected(() => {});
+        if (handlerRef.current) {
+          Quagga.offDetected(handlerRef.current);
+          handlerRef.current = null;
+        }
         // Ferma Quagga
         Quagga.stop();
         // Ferma lo stream video
@@ -214,11 +257,28 @@ export default function Scanner({ onDetected, onError }: Props) {
     };
   }, [onDetected, deviceId, torch, active]);
 
+  const startScan = () => {
+    detectionHistory.current = [];
+    lockedRef.current = false;
+    setError(null);
+    setStatus("Preparazione scanner…");
+    setActive(true);
+  };
+
+  const stopScan = () => {
+    setActive(false);
+    setStatus("Scanner fermo");
+  };
+
+  const changeDevice = (value: string) => {
+    setDeviceId(value || undefined);
+  };
+
   return (
     <div className="card space-y-2">
       <div className="flex gap-2 items-center flex-wrap">
         {!active && (
-          <button className="btn" onClick={() => setActive(true)}>
+          <button className="btn" onClick={startScan}>
             Scansiona
           </button>
         )}
@@ -227,12 +287,31 @@ export default function Scanner({ onDetected, onError }: Props) {
             <button className="btn bg-gray-100" onClick={() => setTorch((t) => !t)}>
               {torch ? "Torcia: ON" : "Torcia: OFF"}
             </button>
-            <button className="btn bg-red-100" onClick={() => setActive(false)}>
+            <button className="btn bg-red-100" onClick={stopScan}>
               Stop
             </button>
           </>
         )}
       </div>
+
+      {devices.length > 1 && (
+        <label className="flex flex-col gap-1 text-xs text-gray-600">
+          <span>Fotocamera</span>
+          <select
+            className="input"
+            value={deviceId || ""}
+            onChange={(e) => changeDevice(e.target.value)}
+            disabled={active}
+          >
+            <option value="">Automatica</option>
+            {devices.map((cam, idx) => (
+              <option key={cam.deviceId || idx} value={cam.deviceId}>
+                {cam.label || `Camera ${idx + 1}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       {active && (
         <div
@@ -241,11 +320,7 @@ export default function Scanner({ onDetected, onError }: Props) {
         />
       )}
 
-      {!active && !error && (
-        <p className="text-sm text-gray-600">
-          Premi "Scansiona" per usare la fotocamera posteriore.
-        </p>
-      )}
+      <p className="text-sm text-gray-600 min-h-[1.5rem]">{status}</p>
       {error && <p className="text-red-600">{error}</p>}
     </div>
   );
