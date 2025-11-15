@@ -1,5 +1,5 @@
 from collections import defaultdict
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, update
 from datetime import datetime
 from . import models, schemas
@@ -112,22 +112,36 @@ def get_products_by_barcode(db: Session, barcode: str) -> list[models.Product]:
 def get_product(db: Session, pid: int) -> models.Product | None:
     return db.get(models.Product, pid)
 
-def upsert_stock(db: Session, product_id: int, location_id: int, delta: int, movement_type: str, note: str | None = None):
+def upsert_stock(
+    db: Session,
+    product_id: int,
+    location_id: int,
+    delta: int,
+    movement_type: str,
+    note: str | None = None,
+    sale_price: float | None = None,
+):
     s = db.scalar(select(models.Stock).where(
         (models.Stock.product_id == product_id) &
         (models.Stock.location_id == location_id)
     ))
     if s:
-        s.qty += delta
+        new_qty = s.qty + delta
+        if new_qty < 0:
+            raise ValueError("Stock insufficiente")
+        s.qty = new_qty
     else:
-        s = models.Stock(product_id=product_id, location_id=location_id, qty=max(0, delta))
+        if delta < 0:
+            raise ValueError("Stock insufficiente")
+        s = models.Stock(product_id=product_id, location_id=location_id, qty=delta)
         db.add(s)
 
     mv = models.StockMovement(
         product_id=product_id, type=movement_type, qty_change=delta,
         from_location_id=None if delta > 0 else location_id if movement_type == "out" else None,
         to_location_id=location_id if delta > 0 else None,
-        note=note
+        note=note,
+        sale_price=sale_price if movement_type == "sell" else None,
     )
     db.add(mv)
     db.commit()
@@ -135,7 +149,7 @@ def upsert_stock(db: Session, product_id: int, location_id: int, delta: int, mov
     return mv
 
 def list_movements(db: Session, type: str | None = None, limit: int = 100, offset: int = 0, from_dt: datetime | None = None, to_dt: datetime | None = None):
-    stmt = select(models.StockMovement).order_by(models.StockMovement.created_at.desc())
+    stmt = select(models.StockMovement).options(selectinload(models.StockMovement.product)).order_by(models.StockMovement.created_at.desc())
     if type:
         stmt = stmt.where(models.StockMovement.type == type)
     if from_dt:
@@ -148,6 +162,8 @@ def list_stock_by_product(db: Session, product_id: int):
     return db.scalars(select(models.Stock).where(models.Stock.product_id == product_id)).all()
 
 def transfer_stock(db: Session, product_id: int, from_loc: int, to_loc: int, qty: int):
+    if qty <= 0:
+        raise ValueError("Quantità non valida")
     # decrementa
     s_from = db.scalar(select(models.Stock).where(
         (models.Stock.product_id == product_id) & (models.Stock.location_id == from_loc)))

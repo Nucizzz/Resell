@@ -77,6 +77,7 @@ export default function Topbar() {
       <nav className="hidden md:flex gap-2 mt-2">
         <NavLink to="/products" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Prodotti</NavLink>
         <NavLink to="/receive" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Ricezione</NavLink>
+        <NavLink to="/stock/add" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Aggiungi stock</NavLink>
         <NavLink to="/sell" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Vendita</NavLink>
         <NavLink to="/inventory" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Inventario</NavLink>
         <NavLink to="/sales" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Storico</NavLink>
@@ -93,6 +94,7 @@ export default function Topbar() {
           <button className="px-3 py-2 rounded bg-gray-100 dark:bg-gray-700" onClick={toggleTheme}>{dark ? "Light" : "Dark"}</button>
           <NavLink to="/products" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Prodotti</NavLink>
           <NavLink to="/receive" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Ricezione</NavLink>
+          <NavLink to="/stock/add" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Aggiungi stock</NavLink>
           <NavLink to="/sell" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Vendita</NavLink>
           <NavLink to="/inventory" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Inventario</NavLink>
           <NavLink to="/sales" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>Storico</NavLink>
