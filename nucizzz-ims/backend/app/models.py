@@ -54,6 +54,7 @@ class StockMovement(Base):
     qty_change: Mapped[int] = mapped_column(Integer)  # positivo o negativo
     type: Mapped[str] = mapped_column(String(20))     # "in", "out", "transfer", "sell"
     note: Mapped[Optional[str]] = mapped_column(String(255))
+    sale_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     product: Mapped[Product] = relationship("Product", back_populates="movements")
