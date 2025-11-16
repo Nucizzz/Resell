@@ -19,7 +19,67 @@ const DETECTION_WINDOW_MS = 3500;
 const MIN_CONFIRMATIONS = 3;
 const CONFIDENCE_THRESHOLD = 0.15;
 
-export default function Scanner({ onDetected, onError }: Props) {
+export const DETECTION_WINDOW_MS = 3000;
+export const MIN_CONFIRMATIONS = 5;
+export const CONFIDENCE_THRESHOLD = 0.32;
+const FRAME_FREQUENCY = 6;
+const DEFAULT_STATUS = "Allinea il barcode nella fascia centrale";
+const ACCEPTED_LENGTHS = new Set([8, 12, 13]);
+const REPEAT_COOLDOWN_MS = 1200;
+
+type DetectionHit = { code: string; timestamp: number; confidence: number };
+type DetectionSummary = { code: string; count: number; avgConfidence: number };
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const sanitizeCode = (raw: string | undefined | null) => {
+  if (!raw) return "";
+  return raw.replace(/[^0-9]/g, "");
+};
+
+const checksumEAN13 = (code: string) => {
+  const digits = code.split("").map((d) => Number(d));
+  const checkDigit = digits.pop() ?? 0;
+  const sum = digits.reduce((acc, digit, idx) => acc + digit * (idx % 2 === 0 ? 1 : 3), 0);
+  const calc = (10 - (sum % 10)) % 10;
+  return calc === checkDigit;
+};
+
+const checksumEAN8 = (code: string) => {
+  const digits = code.split("").map((d) => Number(d));
+  const checkDigit = digits.pop() ?? 0;
+  const sum = digits.reduce((acc, digit, idx) => acc + digit * (idx % 2 === 0 ? 3 : 1), 0);
+  const calc = (10 - (sum % 10)) % 10;
+  return calc === checkDigit;
+};
+
+const checksumUPCA = (code: string) => {
+  const digits = code.split("").map((d) => Number(d));
+  const checkDigit = digits.pop() ?? 0;
+  const oddSum = digits.reduce((acc, digit, idx) => acc + (idx % 2 === 0 ? digit : 0), 0);
+  const evenSum = digits.reduce((acc, digit, idx) => acc + (idx % 2 === 1 ? digit : 0), 0);
+  const total = oddSum * 3 + evenSum;
+  const calc = (10 - (total % 10)) % 10;
+  return calc === checkDigit;
+};
+
+const isValidBarcode = (code: string) => {
+  if (!code || !ACCEPTED_LENGTHS.has(code.length)) return false;
+  if (!/^\d+$/.test(code)) return false;
+  if (code.length === 13) return checksumEAN13(code);
+  if (code.length === 12) return checksumUPCA(code);
+  return checksumEAN8(code);
+};
+
+const getPreferredCamera = (devices: MediaDeviceInfo[]) => {
+  const rear = devices.find((d) => /rear|back|environment/i.test(d.label));
+  if (rear) return rear.deviceId;
+  const external = devices.find((d) => /usb|external/i.test(d.label));
+  if (external) return external.deviceId;
+  return devices[0]?.deviceId || "";
+};
+
+export default function Scanner({ onDetected, onError, enableCode128 }: ScannerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const detectionHits = useRef<Map<string, number[]>>(new Map());
   const finalizingRef = useRef(false);
