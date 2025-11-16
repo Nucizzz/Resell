@@ -1,13 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from ..database import get_db
 from .. import schemas, crud, models
 from ..crud import get_or_create_location
-from ..schemas.product import ProductEnrichment
-from ..services.lookup import lookup_product
-from ..core.rate_limit import rate_limit_dependency
 
 router = APIRouter(tags=["products"])
 
@@ -19,20 +16,6 @@ async def options_receive():
 @router.get("/", response_model=List[schemas.ProductOut])
 def list_products(q: Optional[str] = None, location_id: Optional[int] = None, limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
     return crud.list_products(db, q=q, location_id=location_id, limit=limit, offset=offset)
-
-@router.get("/lookup", response_model=ProductEnrichment)
-async def lookup(
-    barcode: str,
-    nocache: Optional[int] = Query(None),
-    debug: Optional[int] = Query(None),
-    _: None = Depends(rate_limit_dependency),
-):
-    if not barcode or not barcode.isdigit() or not 8 <= len(barcode) <= 14:
-        raise HTTPException(status_code=400, detail="Invalid barcode")
-    try:
-        return await lookup_product(barcode, use_cache=not bool(nocache), debug=bool(debug))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
 
 @router.get("/with-stock", response_model=List[schemas.ProductWithStockOut])
 def list_products_with_stock(q: Optional[str] = None, limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):

@@ -1,10 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { useLocationSelection } from "../contexts/LocationContext";
-import ScanInput from "../components/ScanInput";
-import BarcodeModal from "../components/BarcodeModal";
-import ProductLookupInfo from "../components/ProductLookupInfo";
-import { lookupProduct, type ProductEnrichment } from "../lib/product-lookup";
 
 type Product = {
   id: number;
@@ -23,10 +19,6 @@ export default function InventoryPage() {
   const [hideZero, setHideZero] = useState(false);
   const { locations, mode, location: currentLocation, openSelector } = useLocationSelection();
   const focusLocationId = mode === "location" ? currentLocation?.id ?? null : null;
-  const [scannerOpen, setScannerOpen] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [lookupInfo, setLookupInfo] = useState<ProductEnrichment | null>(null);
-  const [lookupLoading, setLookupLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -83,22 +75,6 @@ export default function InventoryPage() {
     }, 0);
   }, [filteredProducts, focusLocationId]);
 
-  const handleScan = async (code: string) => {
-    if (!code) return;
-    setSearch(code);
-    setScannerOpen(false);
-    setLookupInfo(null);
-    setLookupLoading(true);
-    try {
-      const info = await lookupProduct(code);
-      setLookupInfo(info);
-    } catch {
-      setLookupInfo(null);
-    } finally {
-      setLookupLoading(false);
-    }
-  };
-
   return (
     <div className="p-4 space-y-3">
       <h1 className="text-xl font-semibold">Inventario</h1>
@@ -131,15 +107,7 @@ export default function InventoryPage() {
       <div className="flex flex-wrap gap-3 items-end">
         <div className="flex-1 min-w-[180px]">
           <div className="text-xs text-gray-600">Cerca</div>
-          <ScanInput
-            ref={searchInputRef}
-            placeholder="Cerca per titolo, SKU o barcode"
-            value={search}
-            onChange={setSearch}
-            onScan={handleScan}
-            onRequestScan={() => setScannerOpen(true)}
-            autoFocusOnMount={false}
-          />
+          <input className="input" placeholder="Cerca per titolo, SKU o barcode" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={hideZero} onChange={(e) => setHideZero(e.target.checked)} />
@@ -149,13 +117,6 @@ export default function InventoryPage() {
           {focusLocationId ? "Cambia sede" : "Scegli sede"}
         </button>
       </div>
-      <ProductLookupInfo data={lookupInfo} loading={lookupLoading} />
-      <BarcodeModal
-        open={scannerOpen}
-        onOpenChange={setScannerOpen}
-        onDetected={handleScan}
-        focusRef={searchInputRef}
-      />
 
       {loading && <div className="text-sm text-gray-500">Caricamento inventario...</div>}
 

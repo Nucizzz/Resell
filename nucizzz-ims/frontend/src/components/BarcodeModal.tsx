@@ -3,7 +3,6 @@ import { Camera, RefreshCw, Zap, X } from "lucide-react";
 import { createScanner, Scanner } from "../lib/scanner";
 import "../styles/scanner.css";
 import { useLocation } from "react-router-dom";
-import { useTypingGuard } from "../hooks/useTypingGuard";
 
 type BarcodeModalProps = {
   open: boolean;
@@ -67,16 +66,25 @@ export default function BarcodeModal({
     });
   }, [onDetected]);
 
-  useTypingGuard((event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
-      event.preventDefault();
-      onOpenChange(true);
-    }
-    if (event.key === "Escape" && open) {
-      event.preventDefault();
-      onOpenChange(false);
-    }
-  });
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
+        const active = document.activeElement as HTMLElement | null;
+        const tag = active?.tagName?.toLowerCase();
+        const editable = active?.getAttribute?.("contenteditable");
+        const isField = tag === "input" || tag === "textarea" || editable === "true";
+        if (isField) return;
+        event.preventDefault();
+        onOpenChange(true);
+      }
+      if (event.key === "Escape" && open) {
+        event.preventDefault();
+        onOpenChange(false);
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [open, onOpenChange]);
 
   const stopScanner = () => {
     scannerRef.current?.stop();

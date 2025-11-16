@@ -12,7 +12,6 @@ Stack:
 - Ricezione merce: scansioni il barcode ➜ inserisci dettagli ➜ il prodotto viene salvato su Postgres e creato/aggiornato su Shopify.
 - Vendita: scansioni il barcode ➜ il prodotto viene segnato come venduto e lo stock su Shopify viene decrementato.
 - Sincronizzazione: ogni prodotto salva `shopify_product_id`, `shopify_variant_id`, `inventory_item_id` e usa `location_id` configurata.
-- Lookup barcode pubblico: l'endpoint `GET /api/products/lookup?barcode=<GTIN>` arricchisce i dati interrogando in cascata OpenFoodFacts → OpenBeautyFacts → OpenProductData → RapidAPI `barcodes-lookup` (headers `x-rapidapi-host` / `x-rapidapi-key`). I risultati vengono cache-ati per 7 giorni (memoria o Redis) e l'endpoint è limitato a 60 richieste/min per IP.
 
 ## Prerequisiti
 - Dominio: `nucizzz.shop` su Cloudflare (impostare record A per l'host desiderato verso il server dove gira Docker).

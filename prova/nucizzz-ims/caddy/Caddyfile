@@ -1,0 +1,44 @@
+{
+	email admin@nucizzz.shop
+}
+
+http://app.nucizzz.shop {
+	encode gzip
+
+	@api path /api/*
+	handle @api {
+		reverse_proxy ims_backend:8000 {
+			header_up Host {host}
+			header_up X-Real-IP {remote}
+			header_up X-Forwarded-For {remote}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# https://app.nucizzz.shop {
+# 	tls /etc/ssl/certs/cloudflare-origin.pem /etc/ssl/private/cloudflare-origin.key
+# 	encode gzip
+#
+# 	@api path /api/*
+# 	handle @api {
+# 		reverse_proxy ims_backend:8000 {
+# 			header_up Host {host}
+# 			header_up X-Real-IP {remote}
+# 			header_up X-Forwarded-For {remote}
+# 			header_up X-Forwarded-Proto {scheme}
+# 		}
+# 	}
+#
+# 	handle {
+# 		root * /srv
+# 		try_files {path} /index.html
+# 		file_server
+# 	}
+# }

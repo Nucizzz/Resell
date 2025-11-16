@@ -1,0 +1,190 @@
+from collections import defaultdict
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import select, update
+from datetime import datetime
+from . import models, schemas
+
+def get_or_create_location(db: Session, name: str) -> models.Location:
+    loc = db.scalar(select(models.Location).where(models.Location.name == name))
+    if loc:
+        return loc
+    loc = models.Location(name=name)
+    db.add(loc)
+    db.commit()
+    db.refresh(loc)
+    return loc
+
+def create_product(db: Session, data: schemas.ProductCreate) -> models.Product:
+    # SKU deve essere unico, ma il barcode può essere duplicato (stesso prodotto in location diverse)
+    exists_sku = db.scalar(select(models.Product).where(models.Product.sku == data.sku))
+    if exists_sku:
+        raise ValueError("SKU già presente")
+
+    p = models.Product(
+        sku=data.sku,
+        barcode=data.barcode,
+        title=data.title,
+        brand=data.brand,
+        description=data.description,
+        size=data.size,
+        color=data.color,
+        weight_grams=data.weight_grams,
+        package_required=data.package_required,
+        cost=data.cost,
+        price=data.price,
+        image_url=data.image_url,
+        is_active=data.is_active if data.is_active is not None else True,
+    )
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+
+    # stock iniziale
+    if data.initial_qty and data.initial_qty > 0 and data.location_id:
+        s = models.Stock(product_id=p.id, location_id=data.location_id, qty=data.initial_qty)
+        db.add(s)
+        mv = models.StockMovement(
+            product_id=p.id, type="in", qty_change=data.initial_qty,
+            from_location_id=None, to_location_id=data.location_id, note="Initial stock"
+        )
+        db.add(mv)
+        db.commit()
+
+    return p
+
+def update_product(db: Session, product_id: int, data: dict) -> models.Product:
+    p = db.get(models.Product, product_id)
+    if not p:
+        raise ValueError("Prodotto non trovato")
+    for k, v in data.items():
+        if hasattr(p, k) and v is not None:
+            setattr(p, k, v)
+    db.commit()
+    db.refresh(p)
+    return p
+
+def list_products(db: Session, q: str | None = None, location_id: int | None = None, limit: int = 50, offset: int = 0):
+    stmt = select(models.Product).order_by(models.Product.created_at.desc())
+    if q:
+        like = f"%{q.lower()}%"
+        stmt = stmt.where(
+            (models.Product.sku.ilike(like)) |
+            (models.Product.title.ilike(like)) |
+            (models.Product.barcode.ilike(like)) |
+            (models.Product.brand.ilike(like))
+        )
+    res = db.scalars(stmt.offset(offset).limit(limit)).all()
+    return res
+
+def list_products_with_stock(db: Session, q: str | None = None, limit: int = 50, offset: int = 0):
+    products = list_products(db, q=q, location_id=None, limit=limit, offset=offset)
+    if not products:
+        return []
+
+    ids = [p.id for p in products]
+    stocks = db.scalars(select(models.Stock).where(models.Stock.product_id.in_(ids))).all()
+    stock_map: dict[int, list[models.Stock]] = defaultdict(list)
+    for stock in stocks:
+        stock_map[stock.product_id].append(stock)
+
+    results = []
+    for product in products:
+        base = schemas.ProductOut.model_validate(product, from_attributes=True).model_dump()
+        product_stock = [
+            {"location_id": s.location_id, "qty": s.qty}
+            for s in stock_map.get(product.id, [])
+        ]
+        results.append({
+            **base,
+            "stock": product_stock,
+            "total_qty": sum(item["qty"] for item in product_stock),
+        })
+    return results
+
+def get_product_by_barcode(db: Session, barcode: str) -> models.Product | None:
+    """Restituisce il primo prodotto trovato con questo barcode"""
+    return db.scalar(select(models.Product).where(models.Product.barcode == barcode))
+
+def get_products_by_barcode(db: Session, barcode: str) -> list[models.Product]:
+    """Restituisce tutti i prodotti con questo barcode"""
+    return list(db.scalars(select(models.Product).where(models.Product.barcode == barcode)).all())
+
+def get_product(db: Session, pid: int) -> models.Product | None:
+    return db.get(models.Product, pid)
+
+def upsert_stock(
+    db: Session,
+    product_id: int,
+    location_id: int,
+    delta: int,
+    movement_type: str,
+    note: str | None = None,
+    sale_price: float | None = None,
+):
+    s = db.scalar(select(models.Stock).where(
+        (models.Stock.product_id == product_id) &
+        (models.Stock.location_id == location_id)
+    ))
+    if s:
+        new_qty = s.qty + delta
+        if new_qty < 0:
+            raise ValueError("Stock insufficiente")
+        s.qty = new_qty
+    else:
+        if delta < 0:
+            raise ValueError("Stock insufficiente")
+        s = models.Stock(product_id=product_id, location_id=location_id, qty=delta)
+        db.add(s)
+
+    mv = models.StockMovement(
+        product_id=product_id, type=movement_type, qty_change=delta,
+        from_location_id=None if delta > 0 else location_id if movement_type == "out" else None,
+        to_location_id=location_id if delta > 0 else None,
+        note=note,
+        sale_price=sale_price if movement_type == "sell" else None,
+    )
+    db.add(mv)
+    db.commit()
+    db.refresh(mv)
+    return mv
+
+def list_movements(db: Session, type: str | None = None, limit: int = 100, offset: int = 0, from_dt: datetime | None = None, to_dt: datetime | None = None):
+    stmt = select(models.StockMovement).options(selectinload(models.StockMovement.product)).order_by(models.StockMovement.created_at.desc())
+    if type:
+        stmt = stmt.where(models.StockMovement.type == type)
+    if from_dt:
+        stmt = stmt.where(models.StockMovement.created_at >= from_dt)
+    if to_dt:
+        stmt = stmt.where(models.StockMovement.created_at <= to_dt)
+    return db.scalars(stmt.offset(offset).limit(limit)).all()
+
+def list_stock_by_product(db: Session, product_id: int):
+    return db.scalars(select(models.Stock).where(models.Stock.product_id == product_id)).all()
+
+def transfer_stock(db: Session, product_id: int, from_loc: int, to_loc: int, qty: int):
+    if qty <= 0:
+        raise ValueError("Quantità non valida")
+    # decrementa
+    s_from = db.scalar(select(models.Stock).where(
+        (models.Stock.product_id == product_id) & (models.Stock.location_id == from_loc)))
+    if not s_from or s_from.qty < qty:
+        raise ValueError("Stock insufficiente per trasferimento")
+    s_from.qty -= qty
+
+    # incrementa
+    s_to = db.scalar(select(models.Stock).where(
+        (models.Stock.product_id == product_id) & (models.Stock.location_id == to_loc)))
+    if s_to:
+        s_to.qty += qty
+    else:
+        s_to = models.Stock(product_id=product_id, location_id=to_loc, qty=qty)
+        db.add(s_to)
+
+    mv = models.StockMovement(
+        product_id=product_id, type="transfer", qty_change=qty,
+        from_location_id=from_loc, to_location_id=to_loc, note="Transfer"
+    )
+    db.add(mv)
+    db.commit()
+    db.refresh(mv)
+    return mv

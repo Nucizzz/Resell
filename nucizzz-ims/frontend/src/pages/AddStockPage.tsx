@@ -4,8 +4,6 @@ import { api } from "../api";
 import { useLocationSelection } from "../contexts/LocationContext";
 import ScanInput from "../components/ScanInput";
 import BarcodeModal from "../components/BarcodeModal";
-import ProductLookupInfo from "../components/ProductLookupInfo";
-import { lookupProduct, type ProductEnrichment } from "../lib/product-lookup";
 
 export default function AddStockPage() {
   const [barcode, setBarcode] = useState("");
@@ -16,8 +14,6 @@ export default function AddStockPage() {
   const { mode, location: currentLocation, openSelector } = useLocationSelection();
   const [scannerOpen, setScannerOpen] = useState(false);
   const barcodeInputRef = useRef<HTMLInputElement | null>(null);
-  const [lookupInfo, setLookupInfo] = useState<ProductEnrichment | null>(null);
-  const [lookupLoading, setLookupLoading] = useState(false);
   const activeLocationId = mode === "location" ? currentLocation?.id ?? null : null;
 
   async function onDetected(code: string) {
@@ -27,16 +23,6 @@ export default function AddStockPage() {
     setProduct(null);
     setMatches([]);
     setMessage("");
-    setLookupInfo(null);
-    setLookupLoading(true);
-    try {
-      const info = await lookupProduct(code);
-      setLookupInfo(info);
-    } catch {
-      setLookupInfo(null);
-    } finally {
-      setLookupLoading(false);
-    }
     if (!code) return;
     setLoading(true);
     try {
@@ -101,7 +87,6 @@ export default function AddStockPage() {
           Cerca
         </button>
       </div>
-      <ProductLookupInfo data={lookupInfo} loading={lookupLoading} />
       <BarcodeModal
         open={scannerOpen}
         onOpenChange={setScannerOpen}

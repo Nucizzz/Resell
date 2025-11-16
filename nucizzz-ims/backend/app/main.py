@@ -60,12 +60,3 @@ app.mount(f"{API_BASE}/files", StaticFiles(directory=UPLOAD_DIR), name="uploads"
 @app.get("/")
 def root():
     return {"ok": True, "api": API_BASE}
-
-# Healthchecks
-@app.get(f"{API_BASE}/health")
-def api_health():
-    return {"ok": True, "api": API_BASE}
-
-@app.get("/health")
-def health():
-    return {"ok": True, "api": API_BASE}

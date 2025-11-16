@@ -4,8 +4,7 @@
 
 {$PUBLIC_HOSTNAME} {
   encode gzip
-  @api path /api/*
-  handle @api {
+  handle /api* {
     reverse_proxy backend:8000
   }
   handle {
