@@ -2,10 +2,32 @@
 	email admin@nucizzz.shop
 }
 
-app.nucizzz.shop {
-	# Handle API requests first (highest priority) - use handle instead of handle_path to preserve path
-	handle /api/* {
-		reverse_proxy backend:8000 {
+http://app.nucizzz.shop {
+	@api path /api/*
+	handle @api {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle {
+		respond "Use HTTPS" 308
+	}
+}
+
+https://app.nucizzz.shop {
+	# Phase 1: works with Cloudflare Flexible
+	tls internal
+	# Phase 2 (Full strict): uncomment and provide Origin Cert + key
+	# tls /etc/ssl/certs/cloudflare-origin.pem /etc/ssl/private/cloudflare-origin.key
+
+	log {
+		output file /var/log/caddy/app.access.log
+		format console
+		level INFO
+	}
+
+	@api path /api/*
+	handle @api {
+		reverse_proxy 127.0.0.1:8000 {
 			header_up Host {host}
 			header_up X-Real-IP {remote}
 			header_up X-Forwarded-For {remote}
@@ -13,7 +35,6 @@ app.nucizzz.shop {
 		}
 	}
 
-	# Handle static files and frontend
 	handle {
 		root * /srv
 		try_files {path} /index.html
@@ -21,7 +42,6 @@ app.nucizzz.shop {
 		file_server
 	}
 
-	# Global CORS headers
 	header {
 		Access-Control-Allow-Origin "*"
 		Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
@@ -29,7 +49,6 @@ app.nucizzz.shop {
 		Access-Control-Allow-Credentials "true"
 	}
 
-	# Handle preflight requests globally
 	@options method OPTIONS
 	respond @options 204
 }
