@@ -124,7 +124,8 @@ export default function ReceivePage() {
       </div>
 
       <Scanner
-        onDetected={async (code) => {
+        onDetected={async (payload) => {
+          const code = payload.normalized.primary || payload.raw;
           setForm((f) => ({ ...f, barcode: code }));
           setLoadingBarcode(true);
           setErr(null);

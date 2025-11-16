@@ -1,331 +1,262 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Quagga, { type QuaggaJSResultObject } from "@ericblade/quagga2";
+import { DetectedPayload, Symbology, normalizeGTIN, sanitizeCode, isValidBarcode, symbologyFromResult } from "../utils/barcode";
+
+const ROI = { top: "25%", right: "15%", left: "15%", bottom: "25%" } as const;
+const DETECTION_WINDOW_MS = 3500;
+const DECAY_MS = 1500;
+const MIN_CONFIDENCE = 0.6;
+const HIGH_CONF_STREAK = 3;
+const MIN_HITS = 6;
+const RUNNER_HIT_GAP = 3;
+const RUNNER_DELTA = 0.15;
+const COOLDOWN_MS = 900;
+const MOTION_PAUSE_MS = 500;
+const ZXING_FORMATS = ["EAN_13", "UPC_A"];
+
+const BASE_READERS = ["ean_reader", "upc_reader"] as const;
+const CODE128_READER = ["code_128_reader"] as const;
 
 export type ScannerProps = {
-  onDetected: (code: string) => void | Promise<void>;
+  onDetected: (payload: DetectedPayload) => void | Promise<void>;
   onError?: (message: string) => void;
   enableCode128?: boolean;
+  onStatus?: (status: { light: number; stability: number; roiFill: number }) => void;
+  zxingReader?: any;
 };
 
-const BASE_READERS = ["ean_reader", "ean_8_reader", "upc_reader", "upc_e_reader"] as const;
+type DetectionHit = { code: string; symbology: Symbology; confidence: number; timestamp: number };
+type Candidate = { code: string; symbology: Symbology; hits: number; meanConfidence: number };
 
-type DetectionHit = {
-  code: string;
-  ts: number;
-  confidence: number;
-};
+const clamp = (value: number, min = 0, max = 1) => Math.min(Math.max(value, min), max);
 
-const DETECTION_WINDOW_MS = 3500;
-const MIN_CONFIRMATIONS = 3;
-const CONFIDENCE_THRESHOLD = 0.15;
+async function loadZXing(): Promise<any | null> {
+  try {
+    const mod = await import("@zxing/browser");
+    return new mod.BrowserMultiFormatReader();
+  } catch (err) {
+    console.warn("ZXing not available", err);
+    return null;
+  }
+}
 
-export const DETECTION_WINDOW_MS = 3000;
-export const MIN_CONFIRMATIONS = 5;
-export const CONFIDENCE_THRESHOLD = 0.32;
-const FRAME_FREQUENCY = 6;
-const DEFAULT_STATUS = "Allinea il barcode nella fascia centrale";
-const ACCEPTED_LENGTHS = new Set([8, 12, 13]);
-const REPEAT_COOLDOWN_MS = 1200;
+function cropToROI(video: HTMLVideoElement, scale = 1) {
+  const { videoWidth, videoHeight } = video;
+  if (!videoWidth || !videoHeight) return null;
+  const top = (parseInt(ROI.top) / 100) * videoHeight;
+  const bottom = videoHeight - (parseInt(ROI.bottom) / 100) * videoHeight;
+  const left = (parseInt(ROI.left) / 100) * videoWidth;
+  const right = videoWidth - (parseInt(ROI.right) / 100) * videoWidth;
+  const width = (right - left) * scale;
+  const height = (bottom - top) * scale;
 
-type DetectionHit = { code: string; timestamp: number; confidence: number };
-type DetectionSummary = { code: string; count: number; avgConfidence: number };
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(
+    video,
+    left,
+    top,
+    right - left,
+    bottom - top,
+    0,
+    0,
+    width,
+    height
+  );
+  return canvas;
+}
 
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+function roiStats(box?: number[][]): number {
+  if (!box || box.length < 4) return 0;
+  const xs = box.map((b) => b[0]);
+  const ys = box.map((b) => b[1]);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = Math.max(...ys) - Math.min(...ys);
+  const area = width * height;
+  return area;
+}
 
-const sanitizeCode = (raw: string | undefined | null) => {
-  if (!raw) return "";
-  return raw.replace(/[^0-9]/g, "");
-};
+function shouldAccept(candidate?: Candidate, runner?: Candidate, streak = 0) {
+  if (!candidate) return false;
+  const hitDominance = runner ? candidate.hits - runner.hits >= RUNNER_HIT_GAP : true;
+  const confDominance = runner ? candidate.meanConfidence - runner.meanConfidence >= RUNNER_DELTA : true;
+  const strong = candidate.hits >= MIN_HITS && candidate.meanConfidence >= MIN_CONFIDENCE;
+  const streakStrong = streak >= HIGH_CONF_STREAK;
+  return (strong && (hitDominance || confDominance)) || streakStrong;
+}
 
-const checksumEAN13 = (code: string) => {
-  const digits = code.split("").map((d) => Number(d));
-  const checkDigit = digits.pop() ?? 0;
-  const sum = digits.reduce((acc, digit, idx) => acc + digit * (idx % 2 === 0 ? 1 : 3), 0);
-  const calc = (10 - (sum % 10)) % 10;
-  return calc === checkDigit;
-};
+export { shouldAccept };
 
-const checksumEAN8 = (code: string) => {
-  const digits = code.split("").map((d) => Number(d));
-  const checkDigit = digits.pop() ?? 0;
-  const sum = digits.reduce((acc, digit, idx) => acc + digit * (idx % 2 === 0 ? 3 : 1), 0);
-  const calc = (10 - (sum % 10)) % 10;
-  return calc === checkDigit;
-};
-
-const checksumUPCA = (code: string) => {
-  const digits = code.split("").map((d) => Number(d));
-  const checkDigit = digits.pop() ?? 0;
-  const oddSum = digits.reduce((acc, digit, idx) => acc + (idx % 2 === 0 ? digit : 0), 0);
-  const evenSum = digits.reduce((acc, digit, idx) => acc + (idx % 2 === 1 ? digit : 0), 0);
-  const total = oddSum * 3 + evenSum;
-  const calc = (10 - (total % 10)) % 10;
-  return calc === checkDigit;
-};
-
-const isValidBarcode = (code: string) => {
-  if (!code || !ACCEPTED_LENGTHS.has(code.length)) return false;
-  if (!/^\d+$/.test(code)) return false;
-  if (code.length === 13) return checksumEAN13(code);
-  if (code.length === 12) return checksumUPCA(code);
-  return checksumEAN8(code);
-};
-
-const getPreferredCamera = (devices: MediaDeviceInfo[]) => {
-  const rear = devices.find((d) => /rear|back|environment/i.test(d.label));
-  if (rear) return rear.deviceId;
-  const external = devices.find((d) => /usb|external/i.test(d.label));
-  if (external) return external.deviceId;
-  return devices[0]?.deviceId || "";
-};
-
-export default function Scanner({ onDetected, onError, enableCode128 }: ScannerProps) {
+export default function Scanner({ onDetected, onError, enableCode128, onStatus, zxingReader }: ScannerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const detectionHits = useRef<Map<string, number[]>>(new Map());
-  const finalizingRef = useRef(false);
-  const videoTrackRef = useRef<MediaStreamTrack | null>(null);
-  const [status, setStatus] = useState(DEFAULT_STATUS);
-  const [error, setError] = useState<string | null>(null);
-  const [running, setRunning] = useState(true);
-  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [deviceId, setDeviceId] = useState<string>("");
-  const [torch, setTorch] = useState(false);
-  const [status, setStatus] = useState("Scanner fermo");
   const detectionHistory = useRef<DetectionHit[]>([]);
-  const handlerRef = useRef<((data: any) => void) | null>(null);
-  const lockedRef = useRef(false);
+  const lastConfirmed = useRef<{ code: string; ts: number } | null>(null);
+  const lastResultRef = useRef<string>("");
+  const streakRef = useRef<{ code: string; count: number }>({ code: "", count: 0 });
+  const motionPause = useRef<number>(0);
+  const [status, setStatus] = useState("Allinea il barcode al centro");
+  const [torchAvailable, setTorchAvailable] = useState(false);
+  const [torch, setTorch] = useState(false);
+  const [lightLevel, setLightLevel] = useState(0.6);
+  const [stability, setStability] = useState(1);
+  const [roiFill, setRoiFill] = useState(0);
+  const [deviceId, setDeviceId] = useState<string | undefined>(() => localStorage.getItem("scanner.camera") || undefined);
+  const [ready, setReady] = useState(false);
+
+  const readers = useMemo(() => (enableCode128 ? CODE128_READER : BASE_READERS), [enableCode128]);
 
   useEffect(() => {
-    let active = true;
-    async function enumerate() {
-      if (!navigator.mediaDevices?.enumerateDevices) return;
-      try {
-        await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
-      } catch (err) {
-        console.warn("Camera permission pending", err);
-      }
-      try {
-        const available = await navigator.mediaDevices.enumerateDevices();
-        if (!active) return;
-        const cams = available.filter((d) => d.kind === "videoinput");
-        setDevices(cams);
-        if (!deviceId && cams.length) {
-          setDeviceId(getPreferredCamera(cams));
-        }
-      } catch (err) {
-        console.error("Unable to enumerate cameras", err);
-      }
-    }
-    enumerate();
-    return () => {
-      active = false;
+    let cancelled = false;
+    const onMotion = (ev: DeviceMotionEvent) => {
+      const accel = ev.accelerationIncludingGravity;
+      const rotation = ev.rotationRate;
+      const magnitude = Math.abs(accel?.x ?? 0) + Math.abs(accel?.y ?? 0) + Math.abs(accel?.z ?? 0);
+      const rot = Math.abs(rotation?.alpha ?? 0) + Math.abs(rotation?.beta ?? 0) + Math.abs(rotation?.gamma ?? 0);
+      const unstable = magnitude > 30 || rot > 90;
+      setStability((prev) => clamp(unstable ? prev * 0.7 : prev + 0.05));
+      if (unstable) motionPause.current = Date.now() + MOTION_PAUSE_MS;
     };
-  }, [deviceId]);
+    window.addEventListener("devicemotion", onMotion, { passive: true });
+    return () => {
+      cancelled = true;
+      window.removeEventListener("devicemotion", onMotion);
+      try {
+        Quagga.stop();
+      } catch {}
+    };
+  }, []);
 
   useEffect(() => {
-    if (!running) {
-      stopScanner();
-      return;
-    }
-    if (!containerRef.current) return;
+    const interval = setInterval(() => {
+      onStatus?.({ light: lightLevel, stability, roiFill });
+    }, 300);
+    return () => clearInterval(interval);
+  }, [lightLevel, stability, roiFill, onStatus]);
 
+  useEffect(() => {
+    let cancelled = false;
     async function start() {
+      if (!containerRef.current) return;
+      setStatus("Accensione fotocamera…");
       try {
-        setStatus("Accensione fotocamera…");
-        // Risoluzione ridotta per performance migliori
         const constraints: MediaTrackConstraints = {
           facingMode: { ideal: "environment" },
           deviceId: deviceId ? { exact: deviceId } : undefined,
-          width: { ideal: 960, max: 1280 },
-          height: { ideal: 720, max: 720 },
-          frameRate: { ideal: 15, max: 24 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 24, max: 30 },
+          advanced: torch ? [{ torch: true }] : undefined,
         };
-
-        // prova a settare la torcia (non tutti i browser lo supportano)
-        if (torch) {
-          (constraints as any).advanced = [{ torch: true }];
-        }
-
-        // Se deviceId non è ancora disponibile, prova comunque
-        if (!deviceId) {
-          // Usa constraints senza deviceId specifico
-          userStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: { ideal: "environment" },
-              width: { ideal: 960, max: 1280 },
-              height: { ideal: 720, max: 720 },
-              frameRate: { ideal: 15, max: 24 },
+        await Quagga.stop();
+        await new Promise<void>((resolve, reject) => {
+          Quagga.init(
+            {
+              inputStream: {
+                type: "LiveStream",
+                constraints,
+                target: containerRef.current!,
+                area: ROI,
+              },
+              locator: { patchSize: "medium", halfSample: true },
+              decoder: { readers: readers as any },
+              locate: true,
+              frequency: 6,
+              numOfWorkers:
+                typeof navigator !== "undefined" && navigator.hardwareConcurrency
+                  ? Math.max(1, navigator.hardwareConcurrency - 1)
+                  : 2,
             },
-          });
+            (err) => {
+              if (err) return reject(err);
+              resolve();
+            }
+          );
         });
         if (cancelled) return;
-        await Quagga.start();
-        setStatus(DEFAULT_STATUS);
-        const activeTrack: MediaStreamTrack | undefined = (Quagga as any)?.CameraAccess?.getActiveTrack?.();
-        if (activeTrack) {
-          videoTrackRef.current = activeTrack;
-          await tuneTrack(activeTrack, torchOn, setTorchAvailable);
-        } else {
-          videoTrackRef.current = null;
-          setTorchAvailable(false);
+        Quagga.start();
+        setReady(true);
+        setStatus("Allinea il barcode nella fascia centrale");
+        const track = (Quagga as any)?.CameraAccess?.getActiveTrack?.();
+        if (track) {
+          try {
+            await track.applyConstraints({ advanced: [{ focusMode: "continuous", exposureMode: "continuous" }] } as any);
+          } catch {}
+          const torchCap = (track.getCapabilities?.() as any)?.torch;
+          setTorchAvailable(Boolean(torchCap));
+          const stream = track.getSettings?.();
+          if (stream?.deviceId) localStorage.setItem("scanner.camera", stream.deviceId);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Quagga init failed", err);
-        if (cancelled) return;
-        const message = "Impossibile avviare lo scanner";
-        setError(message);
-        onError?.(message);
-        stopScanner();
-        return;
+        if (!cancelled) onError?.(err?.message || "Impossibile avviare lo scanner");
       }
-
-      const handler = (result: QuaggaJSResultObject) => {
-        if (cancelled || finalizingRef.current) return;
-        const rawCode = result?.codeResult?.code;
-        const confidence = typeof result?.codeResult?.confidence === "number" ? result.codeResult.confidence : 0;
-        const digits = sanitizeCode(rawCode);
-        if (!digits || confidence < CONFIDENCE_THRESHOLD) return;
-        if (!isValidBarcode(digits)) return;
-
-        const now = Date.now();
-        pruneHits(now);
-        const bucket = detectionHits.current.get(digits) ?? [];
-        bucket.push(now);
-        detectionHits.current.set(digits, bucket.filter((ts) => now - ts <= DETECTION_WINDOW_MS));
-        const confirmations = detectionHits.current.get(digits)?.length ?? 0;
-
-        if (confirmations >= MIN_CONFIRMATIONS) {
-          finalizeDetection(digits);
-        } else {
-          setStatus(`Sto verificando ${digits} (${confirmations}/${MIN_CONFIRMATIONS})…`);
-        }
-      };
-
-        // Pulisci eventuali istanze precedenti
-        try {
-          Quagga.stop();
-        } catch {}
-
-        Quagga.init(
-          {
-            inputStream: {
-              type: "LiveStream",
-              target: containerRef.current,
-              constraints: deviceId ? constraints : {
-                facingMode: { ideal: "environment" },
-                width: { ideal: 960, max: 1280 },
-                height: { ideal: 720, max: 720 },
-                frameRate: { ideal: 15, max: 24 },
-              },
-              area: { top: "20%", right: "15%", left: "15%", bottom: "20%" },
-            },
-            decoder: { readers: SCAN_READERS as any },
-            locator: { patchSize: "medium", halfSample: true },
-            locate: true,
-            numOfWorkers: typeof navigator !== "undefined" && navigator.hardwareConcurrency
-              ? Math.min(2, navigator.hardwareConcurrency)
-              : 1,
-            frequency: 4,
-          },
-          (err: unknown) => {
-            if (!mounted) {
-              userStream?.getTracks().forEach(track => track.stop());
-              return;
-            }
-            if (err) {
-              console.error("Quagga init error:", err);
-              const msg = "Errore inizializzazione scanner";
-              setError(msg);
-              onError?.(msg);
-              userStream?.getTracks().forEach(track => track.stop());
-              return;
-            }
-            try {
-              Quagga.start();
-              setStatus("Allinea il barcode al riquadro centrale e tienilo fermo qualche secondo.");
-            } catch (startErr) {
-              console.error("Quagga start error:", startErr);
-              userStream?.getTracks().forEach(track => track.stop());
-            }
-          }
-        );
-
-        const detected = (data: any) => {
-          if (!mounted || lockedRef.current) return;
-          const code = data?.codeResult?.code;
-          const confidence = typeof data?.codeResult?.confidence === "number"
-            ? data.codeResult.confidence
-            : 0;
-          if (!code) return;
-
-          const now = Date.now();
-          detectionHistory.current = detectionHistory.current.filter((hit) => now - hit.ts < DETECTION_WINDOW_MS);
-          detectionHistory.current.push({ code, confidence, ts: now });
-
-          const confirmations = detectionHistory.current.filter(
-            (hit) => hit.code === code && hit.confidence >= CONFIDENCE_THRESHOLD,
-          ).length;
-
-          if (confirmations >= MIN_CONFIRMATIONS) {
-            lockedRef.current = true;
-            setStatus(`Codice confermato (${code}).`);
-            try {
-              Quagga.offDetected(detected);
-              if (handlerRef.current === detected) {
-                handlerRef.current = null;
-              }
-              Quagga.stop();
-            } catch {}
-
-            if (userStream) {
-              userStream.getTracks().forEach((track) => {
-                track.stop();
-                track.enabled = false;
-              });
-            }
-
-            setTimeout(() => {
-              setActive(false);
-              onDetected(code);
-            }, 150);
-          } else {
-            setStatus(`Sto verificando ${code} (${confirmations}/${MIN_CONFIRMATIONS})…`);
-          }
-        };
-        handlerRef.current = detected;
-        Quagga.onDetected(detected);
-      } catch (e: any) {
-        if (!mounted) return;
-        console.error(e);
-        const msg = e?.message || "Impossibile accedere alla fotocamera";
-        setError(msg);
-        onError?.(msg);
-        setStatus("Errore fotocamera");
-        userStream?.getTracks().forEach(track => track.stop());
-      }
-    };
-    window.addEventListener("devicemotion", motion, { passive: true });
-
+    }
+    start();
     return () => {
       cancelled = true;
-      unsubscribe?.();
-      window.removeEventListener("devicemotion", motion);
-      stopScanner();
+      try {
+        Quagga.offDetected(handleDetected);
+        Quagga.stop();
+      } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceId, readers, running, enableCode128]);
+  }, [deviceId, readers, torch]);
 
   useEffect(() => {
-    const track = videoTrackRef.current;
-    if (!track) return;
-    tuneTrack(track, torch, setTorchAvailable).catch((err) => console.warn("Torch constraint error", err));
-  }, [torch]);
+    if (!ready) return;
+    Quagga.onDetected(handleDetected);
+    return () => {
+      Quagga.offDetected(handleDetected);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
-  const pruneHits = (now: number) => {
+  const handleDetected = (result: QuaggaJSResultObject) => {
+    if (Date.now() < motionPause.current) return;
+    const raw = result?.codeResult?.code;
+    const confidence = typeof result?.codeResult?.confidence === "number" ? result.codeResult.confidence : 0;
+    const digits = sanitizeCode(raw);
+    if (!digits || confidence < MIN_CONFIDENCE || !isValidBarcode(digits)) return;
+
+    const now = Date.now();
     detectionHistory.current = detectionHistory.current.filter((hit) => now - hit.timestamp <= DETECTION_WINDOW_MS);
+    const symbology = symbologyFromResult(result?.codeResult?.format, digits);
+    detectionHistory.current.push({ code: digits, symbology, confidence, timestamp: now });
+
+    if (lastConfirmed.current && now - lastConfirmed.current.ts < COOLDOWN_MS) return;
+
+    if (lastResultRef.current === digits && confidence < MIN_CONFIDENCE + 0.05) return;
+    lastResultRef.current = digits;
+
+    if (confidence >= 0.75) {
+      if (streakRef.current.code === digits) {
+        streakRef.current = { code: digits, count: streakRef.current.count + 1 };
+      } else {
+        streakRef.current = { code: digits, count: 1 };
+      }
+    } else {
+      streakRef.current = { code: digits, count: 0 };
+    }
+
+    const summary = summarize(now);
+    setRoiFill(() => {
+      const area = roiStats(result?.box);
+      return clamp(area / ((result?.frameSize?.x || 1) * (result?.frameSize?.y || 1)));
+    });
+    if (shouldAccept(summary.candidate, summary.runnerUp, summary.streak)) {
+      finalize(summary.candidate);
+    } else {
+      setStatus(
+        `Sto verificando ${summary.candidate?.code || digits} (${summary.candidate?.hits || 1}/$${MIN_HITS})…`
+      );
+    }
+    measureLight();
   };
 
-  const summarize = (now: number) => {
+  const summarize = (now: number): { candidate?: Candidate; runnerUp?: Candidate; streak: number } => {
     const buckets = new Map<string, { hits: number; weighted: number; weight: number; symbology: Symbology }>();
     for (const hit of detectionHistory.current) {
       const weight = Math.exp(-(now - hit.timestamp) / DECAY_MS);
@@ -336,225 +267,138 @@ export default function Scanner({ onDetected, onError, enableCode128 }: ScannerP
       current.symbology = hit.symbology;
       buckets.set(hit.code, current);
     }
+    const ranked: Candidate[] = Array.from(buckets.entries())
+      .map(([code, data]) => ({ code, hits: data.hits, meanConfidence: data.weighted / Math.max(data.weight, 0.0001), symbology: data.symbology }))
+      .sort((a, b) => b.hits - a.hits || b.meanConfidence - a.meanConfidence);
+    return { candidate: ranked[0], runnerUp: ranked[1], streak: streakRef.current.count };
   };
 
-  const captureFrame = () => {
+  const measureLight = () => {
     const video = containerRef.current?.querySelector("video");
-    if (!video || !video.videoWidth || !video.videoHeight) return null;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    if (!video) return;
+    const canvas = cropToROI(video, 0.5);
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas;
+    if (!ctx) return;
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      sum += data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    }
+    const avg = sum / (data.length / 4) / 255;
+    setLightLevel(avg);
+    if (avg < 0.25) setStatus("Luce bassa: avvicina o attiva la torcia");
   };
 
-  const shouldAccept = (
-    candidate?: { code: string; hits: number; meanConfidence: number; symbology: Symbology },
-    runnerUp?: { code: string; hits: number; meanConfidence: number },
-    streak = 0,
-  ) => {
-    if (!candidate) return false;
-    const dominanceHits = runnerUp ? candidate.hits - runnerUp.hits >= RUNNER_HIT_GAP : true;
-    const dominanceConf = runnerUp ? candidate.meanConfidence - runnerUp.meanConfidence >= RUNNER_DELTA : true;
-    const threshold = candidate.hits >= MIN_HITS && candidate.meanConfidence >= MIN_CONFIDENCE;
-    const strongStreak = streak >= HIGH_CONF_STREAK;
-    return (threshold && (dominanceHits || dominanceConf)) || strongStreak;
-  };
-
-  const finalize = async (candidate: { code: string; symbology: Symbology }) => {
+  const finalize = async (candidate?: Candidate) => {
+    if (!candidate) return;
+    lastConfirmed.current = { code: candidate.code, ts: Date.now() };
     detectionHistory.current = [];
     setStatus("Verifica finale…");
     try {
       const verified = await verifyCandidate(candidate.code);
       const finalCode = verified || candidate.code;
-      const sym = symbologyFromResult(undefined, finalCode);
-      const normalized = normalizeGTIN(sym, finalCode);
-      lastConfirmedRef.current = { code: finalCode, timestamp: Date.now() };
+      const normalized = normalizeGTIN(candidate.symbology, finalCode);
       navigator.vibrate?.(30);
-      await onDetected({ raw: finalCode, symbology: sym, normalized, imageData: undefined });
-      setStatus(STATUS_DEFAULT);
-    } catch (err) {
+      await onDetected({ raw: finalCode, symbology: candidate.symbology, normalized });
+      setStatus("Pronto per una nuova scansione");
+    } catch (err: any) {
       console.error("Finalize detection error", err);
-      const message = "Errore durante la verifica del barcode";
-      setError(message);
-      onError?.(message);
+      onError?.("Errore durante la verifica del barcode");
     }
   };
 
   const verifyCandidate = async (code: string): Promise<string | null> => {
     const video = containerRef.current?.querySelector("video");
     if (!video) return null;
-    const roiCanvas = cropToROI(video, 1.5);
-    if (!roiCanvas) return null;
+    const canvas = cropToROI(video, 1.5);
+    if (!canvas) return null;
 
-    const zxing = await loadZXing();
-    if (zxing) {
+    const reader = zxingReader || (await loadZXing());
+    if (reader?.decodeFromImage)
       try {
-        // Rimuovi listener
-        if (handlerRef.current) {
-          Quagga.offDetected(handlerRef.current);
-          handlerRef.current = null;
+        const dataUrl = canvas.toDataURL("image/png");
+        const res = await reader.decodeFromImageUrl(dataUrl, {
+          hints: { TRY_HARDER: true, POSSIBLE_FORMATS: ZXING_FORMATS },
+        });
+        if (res?.getText) {
+          const normalized = sanitizeCode(res.getText());
+          if (normalized === code || normalized === `0${code}` || `0${normalized}` === code) return normalized;
         }
-        // Ferma Quagga
-        Quagga.stop();
-        // Ferma lo stream video
-        if (userStream) {
-          userStream.getTracks().forEach(track => {
-            track.stop();
-            track.enabled = false;
-          });
-          userStream = null;
-        }
-        // Ferma anche lo stream video se esiste nel DOM
-        if (containerRef.current) {
-          const video = containerRef.current.querySelector('video');
-          if (video && video.srcObject) {
-            const stream = video.srcObject as MediaStream;
-            stream.getTracks().forEach(track => {
-              track.stop();
-              track.enabled = false;
-            });
-            video.srcObject = null;
-          }
-          // Pulisci anche il canvas se esiste
-          const canvas = containerRef.current.querySelector('canvas');
-          if (canvas) {
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-            }
-          }
+      } catch (err) {
+        console.warn("ZXing verification failed", err);
+      }
+
+    return new Promise((resolve) => {
+      Quagga.decodeSingle(
+        {
+          inputStream: { size: 1920, singleChannel: false },
+          locator: { patchSize: "large", halfSample: false },
+          decoder: { readers: BASE_READERS as any },
+          src: canvas.toDataURL(),
+        },
+        (res) => {
+          const candidate = sanitizeCode(res?.codeResult?.code);
+          resolve(candidate || null);
         }
       );
     });
   };
 
-  const stopScanner = () => {
-    try {
-      Quagga.stop();
-    } catch (err) {
-      console.warn("Quagga stop warning", err);
-    }
-    const video = containerRef.current?.querySelector("video");
-    const stream = video?.srcObject as MediaStream | null;
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      if (video) {
-        video.srcObject = null;
-      }
-    }
-    videoTrackRef.current = null;
-    setTorchAvailable(false);
-  };
-
-  const onDeviceChange = (value: string) => {
-    setDeviceId(value);
-    detectionHits.current.clear();
-  };
-
-  const toggleTorch = () => {
-    setTorchOn((prev) => !prev);
-  };
-
-  const startScan = () => {
-    detectionHistory.current = [];
-    lockedRef.current = false;
-    setError(null);
-    setStatus("Preparazione scanner…");
-    setActive(true);
-  };
-
-  const stopScan = () => {
-    setActive(false);
-    setStatus("Scanner fermo");
-  };
-
-  const changeDevice = (value: string) => {
-    setDeviceId(value || undefined);
-  };
-
   return (
-    <div className="card space-y-2">
-      <div className="flex gap-2 items-center flex-wrap">
-        {!active && (
-          <button className="btn" onClick={startScan}>
-            Scansiona
+    <div className="space-y-3">
+      <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-black/80 text-white">
+        <div ref={containerRef} className="aspect-video w-full" />
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="relative h-40 w-full max-w-xl border-2 border-white/40">
+            <div className="absolute inset-0 border-4 border-transparent" />
+          </div>
+        </div>
+        <div className="absolute left-3 top-3 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold">
+          {enableCode128 ? "Sessione CODE128" : "EAN-13 / UPC"}
+        </div>
+        {torchAvailable && (
+          <button
+            type="button"
+            className="absolute right-3 top-3 rounded-full bg-white/20 px-3 py-1 text-xs"
+            onClick={() => setTorch((t) => !t)}
+          >
+            {torch ? "Torcia ON" : "Torcia OFF"}
           </button>
         )}
-        {active && (
-          <>
-            <button className="btn bg-gray-100" onClick={() => setTorch((t) => !t)}>
-              {torch ? "Torcia: ON" : "Torcia: OFF"}
-            </button>
-            <button className="btn bg-red-100" onClick={stopScan}>
-              Stop
-            </button>
-          </>
-        )}
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 text-sm">
+          {status}
+        </div>
       </div>
-
-      {devices.length > 1 && (
-        <label className="flex flex-col gap-1 text-xs text-gray-600">
-          <span>Fotocamera</span>
-          <select
-            className="input"
-            value={deviceId || ""}
-            onChange={(e) => changeDevice(e.target.value)}
-            disabled={active}
-          >
-            <option value="">Automatica</option>
-            {devices.map((cam, idx) => (
-              <option key={cam.deviceId || idx} value={cam.deviceId}>
-                {cam.label || `Camera ${idx + 1}`}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      {active && (
-        <div
-          ref={containerRef}
-          style={{ width: "100%", minHeight: 120, position: "relative", borderRadius: 12, overflow: "hidden", background: "#000" }}
-        />
-      )}
-
-      <p className="text-sm text-gray-600 min-h-[1.5rem]">{status}</p>
-      {error && <p className="text-red-600">{error}</p>}
+      <div className="grid grid-cols-3 gap-3 text-xs">
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="font-semibold">Stabilità</span>
+            <span>{Math.round(stability * 100)}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-gray-200">
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${clamp(stability) * 100}%` }} />
+          </div>
+        </div>
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="font-semibold">Luce</span>
+            <span>{Math.round(lightLevel * 100)}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-gray-200">
+            <div className="h-full rounded-full bg-amber-500" style={{ width: `${clamp(lightLevel) * 100}%` }} />
+          </div>
+        </div>
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="font-semibold">ROI fill</span>
+            <span>{Math.round(roiFill * 100)}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-gray-200">
+            <div className="h-full rounded-full bg-sky-500" style={{ width: `${clamp(roiFill) * 100}%` }} />
+          </div>
+        </div>
+      </div>
     </div>
   );
-}
-
-async function tuneTrack(
-  track: MediaStreamTrack,
-  torchOn: boolean,
-  setTorchAvailable: (value: boolean) => void,
-) {
-  const capabilities = track.getCapabilities?.();
-  if (!capabilities) {
-    setTorchAvailable(false);
-    return;
-  }
-  const advanced: MediaTrackConstraints & { torch?: boolean; focusMode?: string } = {};
-  if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes("continuous")) {
-    (advanced as any).focusMode = "continuous";
-  }
-  if (capabilities.zoom) {
-    const desired = clamp(2, capabilities.zoom.min ?? 1, capabilities.zoom.max ?? 4);
-    advanced.zoom = desired;
-  }
-  if ("torch" in capabilities && typeof capabilities.torch === "boolean") {
-    setTorchAvailable(true);
-    (advanced as any).torch = torchOn;
-  } else {
-    setTorchAvailable(false);
-  }
-  if (Object.keys(advanced).length === 0) return;
-  try {
-    await track.applyConstraints({ advanced: [advanced] });
-  } catch (err) {
-    console.warn("Unable to apply advanced constraints", err);
-  }
 }
