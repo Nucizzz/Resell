@@ -33,6 +33,11 @@ export default function SellPage() {
     setLoadingStock(false);
   }, [activeLocationId]);
 
+  async function searchBarcode() {
+    if (!barcode) return;
+    await onDetected(barcode);
+  }
+
   async function onDetected(code: string) {
     setProduct(null);
     setProducts([]);
