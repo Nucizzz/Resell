@@ -1,6 +1,6 @@
 // frontend/src/components/Topbar.tsx
 import React, { useContext } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import { api } from "../api";
 import { ToastContext } from "../App";
 import { useLocationSelection } from "../contexts/LocationContext";
@@ -14,7 +14,6 @@ export default function Topbar() {
   const [dark, setDark] = React.useState(false);
   const toast = useContext(ToastContext);
   const { mode, location, openSelector } = useLocationSelection();
-  const route = useLocation();
 
   const currentLabel = mode === "location" ? location?.name || "Location" : "Vista generale";
   const modeDescription = mode === "location" ? "Movimenti su questa sede" : "Solo consultazione";
@@ -25,9 +24,6 @@ export default function Topbar() {
     document.documentElement.classList.toggle("dark", v);
   }, []);
 
-  React.useEffect(() => {
-    if (open) setOpen(false);
-  }, [route.pathname]);
   function toggleTheme() {
     const v = !dark;
     setDark(v);
@@ -97,28 +93,28 @@ export default function Topbar() {
             <button className="btn mt-2" onClick={openSelector}>Cambia</button>
           </div>
           <button className="px-3 py-2 rounded bg-gray-100 dark:bg-gray-700" onClick={toggleTheme}>{dark ? "Light" : "Dark"}</button>
-          <NavLink onClick={() => setOpen(false)} to="/products" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
+          <NavLink to="/products" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
             Prodotti
           </NavLink>
-          <NavLink onClick={() => setOpen(false)} to="/receive" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
+          <NavLink to="/receive" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
             Ricezione
           </NavLink>
-          <NavLink onClick={() => setOpen(false)} to="/stock/add" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
+          <NavLink to="/stock/add" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
             Aggiungi stock
           </NavLink>
-          <NavLink onClick={() => setOpen(false)} to="/sell" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
+          <NavLink to="/sell" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
             Vendita
           </NavLink>
-          <NavLink onClick={() => setOpen(false)} to="/inventory" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
+          <NavLink to="/inventory" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
             Inventario
           </NavLink>
-          <NavLink onClick={() => setOpen(false)} to="/sales" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
+          <NavLink to="/sales" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
             Storico
           </NavLink>
-          <NavLink onClick={() => setOpen(false)} to="/analytics" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
+          <NavLink to="/analytics" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
             Analisi
           </NavLink>
-          <NavLink onClick={() => setOpen(false)} to="/setup" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
+          <NavLink to="/setup" className={({ isActive }) => `${linkBase} ${isActive ? active : idle}`}>
             Setup
           </NavLink>
         </div>

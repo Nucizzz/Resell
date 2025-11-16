@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Barcode, Keyboard, Loader2, ScanLine, ScanText, Zap } from "lucide-react";
 import Scanner from "./Scanner";
 import { DetectedPayload } from "../utils/barcode";
@@ -60,10 +60,8 @@ export default function SearchWithScanner({
   const [recentScans, setRecentScans] = useState<string[]>([]);
   const [lastItem, setLastItem] = useState<SearchItem | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
-  const [scannerKey, setScannerKey] = useState(0);
   const [code128Session, setCode128Session] = useState(false);
   const [statusBars, setStatusBars] = useState({ light: 0.6, stability: 1, roiFill: 0 });
-  const [nextDelay, setNextDelay] = useState(120);
 
   useEffect(() => {
     setCode128Session(Boolean(enableCode128));
@@ -72,12 +70,11 @@ export default function SearchWithScanner({
   useEffect(() => {
     if (typeof document === "undefined") return;
     const { body } = document;
-    if (!scannerOpen) {
-      setScannerError(null);
-      setScannerKey((prev) => prev + 1);
-      body.style.removeProperty("overflow");
-    } else {
+    if (scannerOpen) {
       body.style.setProperty("overflow", "hidden");
+    } else {
+      setScannerError(null);
+      body.style.removeProperty("overflow");
     }
     return () => {
       body.style.removeProperty("overflow");
@@ -100,12 +97,6 @@ export default function SearchWithScanner({
     }
   };
 
-  useEffect(() => {
-    if (!scannerOpen) return;
-    const id = setTimeout(() => setScannerKey((prev) => prev + 1), nextDelay);
-    return () => clearTimeout(id);
-  }, [nextDelay, scannerOpen]);
-
   const handleBarcode = async (payload: DetectedPayload) => {
     const code = payload.normalized.primary || payload.raw;
     setScannerError(null);
@@ -123,20 +114,12 @@ export default function SearchWithScanner({
       await onBarcodeDetected?.(code);
     } catch (err: any) {
       setScannerError(err?.message || "Errore durante l'elaborazione del barcode");
-      setNextDelay(600);
       return;
     }
-    setNextDelay(120);
     if (!continuousScan) {
-      setTimeout(() => setScannerOpen(false), 300);
+      setScannerOpen(false);
     }
   };
-
-  const modalClasses = useMemo(
-    () =>
-      `fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-4 ${scannerOpen ? "" : "pointer-events-none"}`,
-    [scannerOpen]
-  );
 
   return (
     <div className="space-y-4">
@@ -175,32 +158,27 @@ export default function SearchWithScanner({
       )}
 
       {scannerOpen && (
-        <div className="fixed inset-0 z-40 bg-black/60" onClick={() => setScannerOpen(false)} />
-      )}
-      <div className={modalClasses}>
-        <div
-          className={`w-full max-w-3xl transform rounded-3xl bg-white shadow-2xl transition-all duration-300 ${
-            scannerOpen ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"
-          }`}
-        >
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-            <div>
-              <div className="text-sm font-medium">Scanner barcode</div>
-              <p className="text-xs text-gray-500">Inquadra il codice nella fascia centrale e tienilo fermo</p>
-            </div>
-            <button className="btn" onClick={() => setScannerOpen(false)}>
-              <Keyboard className="h-4 w-4" />
-              <span className="ml-2">Tastiera</span>
-            </button>
-          </div>
-          <div className="space-y-4 p-4">
-            <Scanner
-              key={scannerKey}
-              onDetected={handleBarcode}
-              onError={(msg) => setScannerError(msg)}
-              enableCode128={code128Session}
-              onStatus={(s) => setStatusBars(s)}
-            />
+        <>
+          <div className="fixed inset-0 z-40 bg-black/60" onClick={() => setScannerOpen(false)} />
+          <div className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-4">
+            <div className="w-full max-w-3xl rounded-3xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                <div>
+                  <div className="text-sm font-medium">Scanner barcode</div>
+                  <p className="text-xs text-gray-500">Inquadra il codice nella fascia centrale e tienilo fermo</p>
+                </div>
+                <button className="btn" onClick={() => setScannerOpen(false)}>
+                  <Keyboard className="h-4 w-4" />
+                  <span className="ml-2">Tastiera</span>
+                </button>
+              </div>
+              <div className="space-y-4 p-4">
+                <Scanner
+                  onDetected={handleBarcode}
+                  onError={(msg) => setScannerError(msg)}
+                  enableCode128={code128Session}
+                  onStatus={(s) => setStatusBars(s)}
+                />
             <div className="grid grid-cols-2 gap-3 text-sm">
               <label className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2">
                 <input type="checkbox" checked={continuousScan} onChange={(e) => setContinuousScan(e.target.checked)} />
@@ -215,17 +193,11 @@ export default function SearchWithScanner({
                 <span className="flex items-center gap-1"><ScanText className="h-4 w-4" /> Sessione Code128</span>
               </label>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
-              <span className="flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1">
-                <Zap className="h-3 w-3" /> Fallback ZXing
-              </span>
-              <a
-                href="zxing://scan/?ret="
-                className="rounded-full bg-black px-3 py-1 text-white transition hover:bg-gray-800"
-              >
-                Apri app ZXing esterna
-              </a>
-            </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                  <span className="flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1">
+                    <Zap className="h-3 w-3" /> Fallback ZXing
+                  </span>
+                </div>
             <div className="grid grid-cols-3 gap-3 text-xs text-gray-600">
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
@@ -285,10 +257,12 @@ export default function SearchWithScanner({
                 {lastItem.barcode && <div className="text-xs">Barcode: {lastItem.barcode}</div>}
               </div>
             )}
-            {scannerError && <div className="text-sm text-red-600">{scannerError}</div>}
+                {scannerError && <div className="text-sm text-red-600">{scannerError}</div>}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

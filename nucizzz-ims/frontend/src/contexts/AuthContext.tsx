@@ -26,18 +26,25 @@ const getStoredAuth = () => {
   }
 };
 
+const CREDENTIALS: Record<string, string> = {
+  admin: "Sharkshopify1",
+  milo: "Treviso",
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const initialAuth = getStoredAuth();
   const [isAuthenticated, setIsAuthenticated] = useState(initialAuth.isAuthenticated);
   const [user, setUser] = useState<string | null>(initialAuth.user);
 
   const login = async (username: string, password: string): Promise<boolean> => {
-    // Credenziali fisse: admin / Sharkshopify1
-    if (username === "admin" && password === "Sharkshopify1") {
-      const authData = { username, isAuthenticated: true };
+    const normalizedUser = username.trim().toLowerCase();
+    const expectedPassword = CREDENTIALS[normalizedUser];
+    if (expectedPassword && password === expectedPassword) {
+      const canonicalUsername = normalizedUser;
+      const authData = { username: canonicalUsername, isAuthenticated: true };
       localStorage.setItem("auth", JSON.stringify(authData));
       setIsAuthenticated(true);
-      setUser(username);
+      setUser(canonicalUsername);
       return true;
     }
     return false;

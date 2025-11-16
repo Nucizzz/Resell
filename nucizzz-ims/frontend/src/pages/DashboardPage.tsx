@@ -129,6 +129,10 @@ export default function DashboardPage() {
     ? menuItems
     : menuItems.filter((item) => !["receive", "sell"].includes(item.id));
 
+  const visibleCards = mode === "location"
+    ? CARDS
+    : CARDS.filter((card) => !["receive", "sell"].includes(card.id));
+
   return (
     <div className="space-y-6">
       <section className="rounded-3xl bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 p-6 text-white shadow-xl">

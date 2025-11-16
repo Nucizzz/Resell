@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Quagga, { type QuaggaJSResultObject } from "@ericblade/quagga2";
 import { DetectedPayload, Symbology, normalizeGTIN, sanitizeCode, isValidBarcode, symbologyFromResult } from "../utils/barcode";
 
-const ROI = { top: "25%", right: "15%", left: "15%", bottom: "25%" } as const;
+const ROI = { top: "18%", right: "10%", left: "10%", bottom: "18%" } as const;
 const DETECTION_WINDOW_MS = 3500;
 const DECAY_MS = 1500;
 const MIN_CONFIDENCE = 0.6;
@@ -97,6 +97,7 @@ export default function Scanner({ onDetected, onError, enableCode128, onStatus, 
   const lastResultRef = useRef<string>("");
   const streakRef = useRef<{ code: string; count: number }>({ code: "", count: 0 });
   const motionPause = useRef<number>(0);
+  const activeTrack = useRef<MediaStreamTrack | null>(null);
   const [status, setStatus] = useState("Allinea il barcode al centro");
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [torch, setTorch] = useState(false);
@@ -104,7 +105,14 @@ export default function Scanner({ onDetected, onError, enableCode128, onStatus, 
   const [stability, setStability] = useState(1);
   const [roiFill, setRoiFill] = useState(0);
   const [deviceId, setDeviceId] = useState<string | undefined>(() => localStorage.getItem("scanner.camera") || undefined);
+  const [cameras, setCameras] = useState<{ id: string; label: string }[]>([]);
   const [ready, setReady] = useState(false);
+  const [viewMode, setViewMode] = useState<"standard" | "wide">("standard");
+
+  const videoAspectClass =
+    viewMode === "wide"
+      ? "aspect-[3/2] sm:aspect-video lg:aspect-[21/9]"
+      : "aspect-[4/5] sm:aspect-[4/3] lg:aspect-video";
 
   const readers = useMemo(() => (enableCode128 ? CODE128_READER : BASE_READERS), [enableCode128]);
 
@@ -137,10 +145,40 @@ export default function Scanner({ onDetected, onError, enableCode128, onStatus, 
   }, [lightLevel, stability, roiFill, onStatus]);
 
   useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return;
+    let cancelled = false;
+    async function loadDevices() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (cancelled) return;
+        const videos = devices
+          .filter((d) => d.kind === "videoinput")
+          .map((d, idx) => ({ id: d.deviceId, label: d.label || `Camera ${idx + 1}` }));
+        setCameras(videos);
+        if (!deviceId && videos.length > 0) {
+          setDeviceId(videos[0].id);
+        }
+      } catch (err) {
+        console.warn("Unable to enumerate cameras", err);
+      }
+    }
+    loadDevices();
+    const handleDeviceChange = () => loadDevices();
+    navigator.mediaDevices.addEventListener?.("devicechange", handleDeviceChange);
+    return () => {
+      cancelled = true;
+      navigator.mediaDevices.removeEventListener?.("devicechange", handleDeviceChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId]);
+
+  useEffect(() => {
     let cancelled = false;
     async function start() {
       if (!containerRef.current) return;
-      setStatus("Accensione fotocamera…");
+      setStatus("Accensione fotocamera...");
+      setReady(false);
+      setTorchAvailable(false);
       try {
         const constraints: MediaTrackConstraints = {
           facingMode: { ideal: "environment" },
@@ -148,7 +186,6 @@ export default function Scanner({ onDetected, onError, enableCode128, onStatus, 
           width: { ideal: 1280 },
           height: { ideal: 720 },
           frameRate: { ideal: 24, max: 30 },
-          advanced: torch ? [{ torch: true }] : undefined,
         };
         await Quagga.stop();
         await new Promise<void>((resolve, reject) => {
@@ -184,10 +221,20 @@ export default function Scanner({ onDetected, onError, enableCode128, onStatus, 
           try {
             await track.applyConstraints({ advanced: [{ focusMode: "continuous", exposureMode: "continuous" }] } as any);
           } catch {}
+          activeTrack.current = track;
           const torchCap = (track.getCapabilities?.() as any)?.torch;
           setTorchAvailable(Boolean(torchCap));
+          if (!torchCap && torch) setTorch(false);
           const stream = track.getSettings?.();
           if (stream?.deviceId) localStorage.setItem("scanner.camera", stream.deviceId);
+        }
+        const video = containerRef.current?.querySelector("video");
+        if (video) {
+          Object.assign(video.style, {
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+          });
         }
       } catch (err: any) {
         console.error("Quagga init failed", err);
@@ -201,9 +248,12 @@ export default function Scanner({ onDetected, onError, enableCode128, onStatus, 
         Quagga.offDetected(handleDetected);
         Quagga.stop();
       } catch {}
+      activeTrack.current?.stop?.();
+      activeTrack.current = null;
+      setTorchAvailable(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceId, readers, torch]);
+  }, [deviceId, readers]);
 
   useEffect(() => {
     if (!ready) return;
@@ -213,6 +263,20 @@ export default function Scanner({ onDetected, onError, enableCode128, onStatus, 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
+
+  useEffect(() => {
+    const track = activeTrack.current;
+    if (!track || !torchAvailable) return;
+    async function applyTorch() {
+      try {
+        await track.applyConstraints({ advanced: [{ torch }] } as any);
+      } catch (err) {
+        console.warn("Torch toggle failed", err);
+        setTorch(false);
+      }
+    }
+    applyTorch();
+  }, [torch, torchAvailable]);
 
   const handleDetected = (result: QuaggaJSResultObject) => {
     if (Date.now() < motionPause.current) return;
@@ -345,27 +409,55 @@ export default function Scanner({ onDetected, onError, enableCode128, onStatus, 
     });
   };
 
+  const cycleCamera = () => {
+    if (!cameras.length) return;
+    const currentIdx = deviceId ? cameras.findIndex((c) => c.id === deviceId) : -1;
+    const next = cameras[(currentIdx + 1) % cameras.length];
+    if (next) {
+      setDeviceId(next.id);
+      localStorage.setItem("scanner.camera", next.id);
+      setTorch(false);
+      setTorchAvailable(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
-      <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-black/80 text-white">
-        <div ref={containerRef} className="aspect-video w-full" />
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="relative h-40 w-full max-w-xl border-2 border-white/40">
-            <div className="absolute inset-0 border-4 border-transparent" />
-          </div>
+      <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-black/90 text-white">
+        <div ref={containerRef} className={`relative w-full bg-black ${videoAspectClass}`} />
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6">
+          <div className="h-32 w-full max-w-2xl rounded-3xl border-2 border-white/50 sm:h-40 lg:h-48" />
         </div>
         <div className="absolute left-3 top-3 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold">
           {enableCode128 ? "Sessione CODE128" : "EAN-13 / UPC"}
         </div>
-        {torchAvailable && (
+        <div className="absolute right-3 top-3 flex flex-col items-end gap-2 text-xs">
           <button
             type="button"
-            className="absolute right-3 top-3 rounded-full bg-white/20 px-3 py-1 text-xs"
-            onClick={() => setTorch((t) => !t)}
+            className="rounded-full bg-white/20 px-3 py-1"
+            onClick={() => setViewMode((m) => (m === "wide" ? "standard" : "wide"))}
           >
-            {torch ? "Torcia ON" : "Torcia OFF"}
+            {viewMode === "wide" ? "Vista compatta" : "Vista larga"}
           </button>
-        )}
+          {cameras.length > 1 && (
+            <button
+              type="button"
+              className="rounded-full bg-white/20 px-3 py-1"
+              onClick={cycleCamera}
+            >
+              Cambia camera
+            </button>
+          )}
+          {torchAvailable && (
+            <button
+              type="button"
+              className="rounded-full bg-white/20 px-3 py-1"
+              onClick={() => setTorch((t) => !t)}
+            >
+              {torch ? "Torcia ON" : "Torcia OFF"}
+            </button>
+          )}
+        </div>
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 text-sm">
           {status}
         </div>
