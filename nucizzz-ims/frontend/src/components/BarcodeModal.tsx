@@ -37,6 +37,7 @@ export default function BarcodeModal({
 }: BarcodeModalProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const roiRef = useRef<HTMLDivElement | null>(null);
+  const lastFocusedRef = useRef<HTMLElement | null>(null);
   const scannerRef = useRef<Scanner | null>(null);
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -68,6 +69,11 @@ export default function BarcodeModal({
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
+        const active = document.activeElement as HTMLElement | null;
+        const tag = active?.tagName?.toLowerCase();
+        const editable = active?.getAttribute?.("contenteditable");
+        const isField = tag === "input" || tag === "textarea" || editable === "true";
+        if (isField) return;
         event.preventDefault();
         onOpenChange(true);
       }
@@ -162,9 +168,12 @@ export default function BarcodeModal({
       stopScanner();
       if (focusRef?.current) {
         focusRef.current.focus();
+      } else {
+        lastFocusedRef.current?.focus();
       }
       return;
     }
+    lastFocusedRef.current = document.activeElement as HTMLElement | null;
     setStatus("Avvio camera...");
     setError(null);
     setTorchOn(false);
@@ -306,11 +315,15 @@ export default function BarcodeModal({
                 <RefreshCw className="h-4 w-4" />
                 <span className="ml-1">Inverti</span>
               </button>
-              <button className="btn" onClick={() => onOpenChange(false)}>
-                <X className="h-4 w-4" />
-                <span className="ml-2">Annulla</span>
-              </button>
-            </div>
+            <button
+              className="btn"
+              onClick={() => onOpenChange(false)}
+              autoFocus
+            >
+              <X className="h-4 w-4" />
+              <span className="ml-2">Annulla</span>
+            </button>
+          </div>
           </div>
           <div className="flex flex-col items-center gap-4 p-4">
             <div className="scan-frame">
