@@ -26,3 +26,11 @@ async def try_fetch_json(
     except ValueError:
         return None
 
+
+async def try_fetch_json_with_headers(
+    url: str,
+    headers: Dict[str, str],
+    *,
+    timeout_ms: Optional[int] = None,
+) -> Any | None:
+    return await try_fetch_json(url, timeout_ms=timeout_ms or 5000, headers=headers)

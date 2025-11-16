@@ -14,7 +14,7 @@ class ImageInfo(BaseModel):
 
 class ProductEnrichment(BaseModel):
     found: bool = Field(default=False)
-    source: Optional[Literal["OFF", "OBF", "OPF", "SPIDER"]] = None
+    source: Optional[Literal["OFF", "OBF", "OPF", "RAPID"]] = None
     gtin: str
     title: Optional[str] = None
     brand: Optional[str] = None
@@ -22,4 +22,3 @@ class ProductEnrichment(BaseModel):
     image: Optional[ImageInfo] = None
     description: Optional[str] = None
     raw: Any = None
-

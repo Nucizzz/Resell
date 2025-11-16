@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -21,11 +21,16 @@ def list_products(q: Optional[str] = None, location_id: Optional[int] = None, li
     return crud.list_products(db, q=q, location_id=location_id, limit=limit, offset=offset)
 
 @router.get("/lookup", response_model=ProductEnrichment)
-async def lookup(barcode: str, _: None = Depends(rate_limit_dependency)):
+async def lookup(
+    barcode: str,
+    nocache: Optional[int] = Query(None),
+    debug: Optional[int] = Query(None),
+    _: None = Depends(rate_limit_dependency),
+):
     if not barcode or not barcode.isdigit() or not 8 <= len(barcode) <= 14:
         raise HTTPException(status_code=400, detail="Invalid barcode")
     try:
-        return await lookup_product(barcode)
+        return await lookup_product(barcode, use_cache=not bool(nocache), debug=bool(debug))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

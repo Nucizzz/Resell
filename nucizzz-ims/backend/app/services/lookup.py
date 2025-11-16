@@ -2,19 +2,15 @@ from __future__ import annotations
 
 import logging
 import time
-from os import getenv
 from typing import Any, Literal, Optional
 
+from ..core.config import settings
 from ..schemas.product import ProductEnrichment
 from ..utils.cache import cache_get, cache_set
 from ..utils.gtin import normalize_gtin_for_lookup
-from ..utils.http import try_fetch_json
+from ..utils.http import try_fetch_json, try_fetch_json_with_headers
 
 logger = logging.getLogger(__name__)
-
-LOOKUP_TIMEOUT_MS = int(getenv("LOOKUP_TIMEOUT_MS", "5000"))
-LOOKUP_TTL_SECONDS = int(getenv("LOOKUP_TTL_SECONDS", "604800"))
-BARCODE_SPIDER_TOKEN = getenv("BARCODE_SPIDER_TOKEN", "")
 
 SOURCES_OPEN = [
     ("OFF", "https://world.openfoodfacts.org/api/v2/product/{gtin}.json"),
@@ -63,88 +59,125 @@ def map_open_product(payload: dict[str, Any], source: Literal["OFF", "OBF", "OPF
     )
 
 
-def map_spider_product(response: dict[str, Any], gtin: str) -> Optional[ProductEnrichment]:
-    def pick(obj: Any, keys: list[str]) -> Optional[str]:
-        if not obj:
-            return None
-        for key in keys:
-            value = obj.get(key) if isinstance(obj, dict) else None
-            if value:
-                return str(value)
-        return None
+def _pick(obj: dict[str, Any], keys: list[str]) -> Optional[str]:
+    for key in keys:
+        value = obj.get(key)
+        if value:
+            return str(value)
+    return None
 
-    candidate = (
-        response.get("item_attributes")
-        or response.get("item")
-        or (response.get("products") or [None])[0]
-        or response
-    )
+
+def _map_rapid(response: dict[str, Any], gtin: str) -> Optional[ProductEnrichment]:
+    candidate: Optional[dict[str, Any]] = None
+    products = response.get("products")
+    if isinstance(products, list) and products:
+        first = products[0]
+        if isinstance(first, dict):
+            candidate = first
+    if candidate is None:
+        item = response.get("item") or response.get("result")
+        if isinstance(item, dict):
+            candidate = item
+    if candidate is None and isinstance(response, dict):
+        candidate = response
     if not isinstance(candidate, dict):
         return None
 
-    title = pick(candidate, ["title", "name"])
-    brand = pick(candidate, ["brand", "manufacturer"])
-    category = pick(candidate, ["category", "category_name"])
-    description = pick(candidate, ["description", "short_description", "long_description"])
+    title = _pick(candidate, ["title", "name", "product_title", "product_name"]) or ""
+    brand = _pick(candidate, ["brand", "manufacturer", "brand_name"]) or ""
+    category = _pick(candidate, ["category", "category_name"]) or ""
+    description = _pick(candidate, ["description", "short_description", "long_description"]) or ""
+    image = _pick(candidate, ["image", "image_url", "imageurl", "thumbnail"])
+    if not image:
+        images = candidate.get("images")
+        if isinstance(images, list) and images:
+            first_img = images[0]
+            if isinstance(first_img, str):
+                image = first_img
+            elif isinstance(first_img, dict):
+                image = first_img.get("url") or first_img.get("link")
 
-    image_url = None
-    images = response.get("item_images")
-    if isinstance(images, list) and images:
-        first = images[0]
-        if isinstance(first, dict):
-            image_url = first.get("link") or first.get("url")
-    image_url = image_url or pick(candidate, ["imageurl", "image_url", "image"])
+    if not any([title, brand, category, description, image]):
+        return None
 
     return ProductEnrichment(
         found=True,
-        source="SPIDER",
+        source="RAPID",
         gtin=gtin,
-        title=title,
-        brand=brand,
+        title=title or None,
+        brand=brand or None,
         categories=[category] if category else None,
-        image={"url": image_url} if image_url else None,
-        description=description,
+        image={"url": image} if image else None,
+        description=description or None,
         raw=candidate,
     )
 
 
-async def lookup_product(gtin_raw: str) -> ProductEnrichment:
-    started = time.perf_counter()
-    gtin = normalize_gtin_for_lookup(gtin_raw)
-    cache_key = f"lookup:{gtin}"
+async def rapid_try(gtin: str) -> Optional[dict[str, Any]]:
+    host = settings.RAPIDAPI_HOST
+    key = settings.RAPIDAPI_KEY
+    if not host or not key:
+        logger.debug("RapidAPI disabled (missing host/key)")
+        return None
+    headers = {
+        "x-rapidapi-host": host,
+        "x-rapidapi-key": key,
+    }
+    urls = [
+        f"https://{host}/?barcode={gtin}",
+        f"https://{host}/?query={gtin}",
+    ]
+    for url in urls:
+        data = await try_fetch_json_with_headers(url, headers, timeout_ms=settings.LOOKUP_TIMEOUT_MS)
+        if data:
+            logger.info("RapidAPI hit url=%s gtin=%s", url, gtin)
+            return data
+        logger.debug("RapidAPI miss url=%s gtin=%s", url, gtin)
+    return None
 
-    cached = await cache_get(cache_key)
-    if cached:
-        logger.info("lookup cache hit gtin=%s source=%s", gtin, cached.get("source"))
-        return ProductEnrichment(**cached)
+
+async def lookup_product(gtin_raw: str, *, use_cache: bool = True, debug: bool = False) -> ProductEnrichment:
+    started = time.perf_counter()
+    gtin_normalized = normalize_gtin_for_lookup(gtin_raw)
+    cache_key = f"lookup:{gtin_normalized}"
+    if debug:
+        logger.info("lookup debug raw=%s normalized=%s use_cache=%s", gtin_raw, gtin_normalized, use_cache)
+
+    if use_cache:
+        cached = await cache_get(cache_key)
+        if cached:
+            logger.info("lookup cache hit gtin=%s source=%s", gtin_normalized, cached.get("source"))
+            return ProductEnrichment(**cached)
 
     for name, pattern in SOURCES_OPEN:
-        url = pattern.format(gtin=gtin)
-        data = await try_fetch_json(url, timeout_ms=LOOKUP_TIMEOUT_MS)
+        url = pattern.format(gtin=gtin_normalized)
+        data = await try_fetch_json(url, timeout_ms=settings.LOOKUP_TIMEOUT_MS)
         if data and data.get("status") == 1 and data.get("product"):
-            enrichment = map_open_product(data["product"], name, gtin)
-            await cache_set(cache_key, enrichment.model_dump(), LOOKUP_TTL_SECONDS)
+            enrichment = map_open_product(data["product"], name, gtin_normalized)
+            if use_cache:
+                await cache_set(cache_key, enrichment.model_dump(), settings.LOOKUP_TTL_SECONDS)
             elapsed = (time.perf_counter() - started) * 1000
-            logger.info("lookup gtin=%s source=%s ms=%.2f", gtin, name, elapsed)
+            logger.info("lookup gtin=%s source=%s ms=%.2f", gtin_normalized, name, elapsed)
             return enrichment
 
-    if BARCODE_SPIDER_TOKEN:
-        spider_url = (
-            "https://api.barcodespider.com/v1/lookup"
-            f"?token={BARCODE_SPIDER_TOKEN}&upc={gtin}"
-        )
-        data = await try_fetch_json(spider_url, timeout_ms=LOOKUP_TIMEOUT_MS)
-        if data:
-            mapped = map_spider_product(data, gtin)
+    gtin_candidates = [gtin_normalized]
+    if gtin_raw != gtin_normalized:
+        gtin_candidates.append(gtin_raw)
+
+    for candidate in gtin_candidates:
+        rapid_response = await rapid_try(candidate)
+        if rapid_response:
+            mapped = _map_rapid(rapid_response, candidate)
             if mapped and mapped.found:
-                await cache_set(cache_key, mapped.model_dump(), LOOKUP_TTL_SECONDS)
+                if use_cache:
+                    await cache_set(cache_key, mapped.model_dump(), settings.LOOKUP_TTL_SECONDS)
                 elapsed = (time.perf_counter() - started) * 1000
-                logger.info("lookup gtin=%s source=SPIDER ms=%.2f", gtin, elapsed)
+                logger.info("lookup gtin=%s source=RAPID ms=%.2f", candidate, elapsed)
                 return mapped
 
-    not_found = ProductEnrichment(found=False, source=None, gtin=gtin, raw=None)
-    await cache_set(cache_key, not_found.model_dump(), LOOKUP_TTL_SECONDS)
+    not_found = ProductEnrichment(found=False, source=None, gtin=gtin_normalized, raw=None)
+    if use_cache:
+        await cache_set(cache_key, not_found.model_dump(), settings.LOOKUP_TTL_SECONDS)
     elapsed = (time.perf_counter() - started) * 1000
-    logger.info("lookup gtin=%s source=NONE ms=%.2f", gtin, elapsed)
+    logger.info("lookup gtin=%s source=NONE ms=%.2f", gtin_normalized, elapsed)
     return not_found
-
