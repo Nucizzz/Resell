@@ -3,12 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
 from os import getenv
 from pathlib import Path
+import logging
 
 from .database import Base, engine, SessionLocal
 from .routers import products, locations, stock, uploads, shopify
 from . import crud
 
 API_BASE = getenv("API_BASE_PATH", "/api")
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Nucizzz IMS", openapi_url=f"{API_BASE}/openapi.json", docs_url=f"{API_BASE}/docs")
 
@@ -25,6 +27,16 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
+    # ensure optional columns exist when running without migrations
+    with engine.begin() as conn:
+        dialect = conn.dialect.name
+        try:
+            if dialect == "sqlite":
+                conn.exec_driver_sql("ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS sale_price FLOAT")
+            else:
+                conn.exec_driver_sql("ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS sale_price DOUBLE PRECISION")
+        except Exception as exc:  # pragma: no cover - best effort
+            logger.warning("Unable to ensure sale_price column: %s", exc)
     # Inizializza le location standard se non esistono
     db = SessionLocal()
     try:

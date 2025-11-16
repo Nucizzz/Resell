@@ -65,6 +65,7 @@ class MovementCreate(BaseModel):
     from_location_id: Optional[int] = None
     to_location_id: Optional[int] = None
     note: Optional[str] = None
+    sale_price: Optional[float] = None
 
 class MovementOut(BaseModel):
     id: int
@@ -74,6 +75,8 @@ class MovementOut(BaseModel):
     from_location_id: Optional[int]
     to_location_id: Optional[int]
     note: Optional[str]
+    sale_price: Optional[float] = None
     created_at: datetime
+    product: Optional[ProductOut] = None
     class Config:
         from_attributes = True

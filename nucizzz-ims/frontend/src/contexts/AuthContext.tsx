@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState } from "react";
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -9,19 +9,27 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState<string | null>(null);
+const getStoredAuth = () => {
+  if (typeof window === "undefined") {
+    return { isAuthenticated: false, user: null as string | null };
+  }
+  try {
+    const raw = localStorage.getItem("auth");
+    if (!raw) return { isAuthenticated: false, user: null as string | null };
+    const parsed = JSON.parse(raw);
+    return {
+      isAuthenticated: Boolean(parsed?.isAuthenticated),
+      user: typeof parsed?.username === "string" ? parsed.username : null,
+    };
+  } catch {
+    return { isAuthenticated: false, user: null as string | null };
+  }
+};
 
-  useEffect(() => {
-    // Verifica se l'utente è già autenticato
-    const auth = localStorage.getItem("auth");
-    if (auth) {
-      const { username, isAuthenticated: authStatus } = JSON.parse(auth);
-      setIsAuthenticated(authStatus);
-      setUser(username);
-    }
-  }, []);
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const initialAuth = getStoredAuth();
+  const [isAuthenticated, setIsAuthenticated] = useState(initialAuth.isAuthenticated);
+  const [user, setUser] = useState<string | null>(initialAuth.user);
 
   const login = async (username: string, password: string): Promise<boolean> => {
     // Credenziali fisse: admin / Sharkshopify1
