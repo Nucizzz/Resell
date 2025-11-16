@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Barcode, Keyboard, Loader2 } from "lucide-react";
+import { Barcode, Keyboard, Loader2, ScanLine, ScanText, Zap } from "lucide-react";
 import Scanner from "./Scanner";
+import { DetectedPayload } from "../utils/barcode";
 
 export type SearchResult = {
   id: string;
@@ -60,6 +61,13 @@ export default function SearchWithScanner({
   const [lastItem, setLastItem] = useState<SearchItem | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerKey, setScannerKey] = useState(0);
+  const [code128Session, setCode128Session] = useState(false);
+  const [statusBars, setStatusBars] = useState({ light: 0.6, stability: 1, roiFill: 0 });
+  const [nextDelay, setNextDelay] = useState(120);
+
+  useEffect(() => {
+    setCode128Session(Boolean(enableCode128));
+  }, [enableCode128]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -92,7 +100,14 @@ export default function SearchWithScanner({
     }
   };
 
-  const handleBarcode = async (code: string) => {
+  useEffect(() => {
+    if (!scannerOpen) return;
+    const id = setTimeout(() => setScannerKey((prev) => prev + 1), nextDelay);
+    return () => clearTimeout(id);
+  }, [nextDelay, scannerOpen]);
+
+  const handleBarcode = async (payload: DetectedPayload) => {
+    const code = payload.normalized.primary || payload.raw;
     setScannerError(null);
     setRecentScans((prev) => [code, ...prev.filter((entry) => entry !== code)].slice(0, 6));
     if (mockApis) {
@@ -108,7 +123,10 @@ export default function SearchWithScanner({
       await onBarcodeDetected?.(code);
     } catch (err: any) {
       setScannerError(err?.message || "Errore durante l'elaborazione del barcode");
+      setNextDelay(600);
+      return;
     }
+    setNextDelay(120);
     if (!continuousScan) {
       setTimeout(() => setScannerOpen(false), 300);
     }
@@ -180,12 +198,72 @@ export default function SearchWithScanner({
               key={scannerKey}
               onDetected={handleBarcode}
               onError={(msg) => setScannerError(msg)}
-              enableCode128={enableCode128}
+              enableCode128={code128Session}
+              onStatus={(s) => setStatusBars(s)}
             />
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={continuousScan} onChange={(e) => setContinuousScan(e.target.checked)} />
-              Scansione continua
-            </label>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <label className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2">
+                <input type="checkbox" checked={continuousScan} onChange={(e) => setContinuousScan(e.target.checked)} />
+                <span className="flex items-center gap-1"><ScanLine className="h-4 w-4" /> Scansione continua</span>
+              </label>
+              <label className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={code128Session}
+                  onChange={(e) => setCode128Session(e.target.checked)}
+                />
+                <span className="flex items-center gap-1"><ScanText className="h-4 w-4" /> Sessione Code128</span>
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+              <span className="flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1">
+                <Zap className="h-3 w-3" /> Fallback ZXing
+              </span>
+              <a
+                href="zxing://scan/?ret="
+                className="rounded-full bg-black px-3 py-1 text-white transition hover:bg-gray-800"
+              >
+                Apri app ZXing esterna
+              </a>
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-xs text-gray-600">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold">Stabilità</span>
+                  <span>{Math.round(statusBars.stability * 100)}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-gray-200">
+                  <div
+                    className="h-full rounded-full bg-emerald-500"
+                    style={{ width: `${Math.min(statusBars.stability, 1) * 100}%` }}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold">Luce</span>
+                  <span>{Math.round(statusBars.light * 100)}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-gray-200">
+                  <div
+                    className="h-full rounded-full bg-amber-500"
+                    style={{ width: `${Math.min(statusBars.light, 1) * 100}%` }}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold">ROI</span>
+                  <span>{Math.round(statusBars.roiFill * 100)}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-gray-200">
+                  <div
+                    className="h-full rounded-full bg-sky-500"
+                    style={{ width: `${Math.min(statusBars.roiFill, 1) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
             <div>
               <div className="text-xs font-semibold uppercase text-gray-500">Ultime scansioni</div>
               {recentScans.length === 0 ? (

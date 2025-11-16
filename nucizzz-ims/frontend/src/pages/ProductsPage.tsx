@@ -325,7 +325,8 @@ export default function ProductsPage() {
               </button>
             </div>
             <Scanner
-              onDetected={async (code) => {
+              onDetected={async (payload) => {
+                const code = payload.normalized.primary || payload.raw;
                 setScanOpen(false);
                 setQ(code);
                 await load();

@@ -1,5 +1,14 @@
 export type Symbology = "EAN_13" | "UPC_A" | "UPC_E" | "EAN_8" | "CODE_128";
 
+export type NormalizedGTIN = { primary: string; aliases: string[] };
+
+export interface DetectedPayload {
+  raw: string;
+  symbology: Symbology;
+  normalized: NormalizedGTIN;
+  imageData?: ImageData | string;
+}
+
 export const ACCEPTED_LENGTHS = new Set([8, 12, 13]);
 
 export function calcEAN13Checksum(digits12: string): number {
@@ -67,25 +76,21 @@ export function expandUPCE(upce: string): string | null {
 
   let expanded = "";
   if ("012".includes(selector)) {
-    expanded = `${manufacturer.slice(0, 2)}${selector}${"0000"}${manufacturer.slice(2, 5)}`;
+    expanded = `${manufacturer.slice(0, 2)}${selector}0000${manufacturer.slice(2, 5)}`;
   } else if (selector === "3") {
     expanded = `${manufacturer.slice(0, 3)}00000${manufacturer.slice(3, 5)}`;
   } else if (selector === "4") {
-    expanded = `${manufacturer.slice(0, 4)}00000${manufacturer[4]}`;
+    expanded = `${manufacturer.slice(0, 4)}00000${manufacturer.slice(4, 5)}`;
   } else {
     expanded = `${manufacturer.slice(0, 5)}0000${selector}`;
   }
 
-  const upcAWithoutCheck = `${numberSystem}${expanded}`;
-  const digits12 = upcAWithoutCheck.slice(0, 11);
-  const checkDigit = checksumUPCA(`${digits12}0`)
+  const withoutCheck = `${numberSystem}${expanded}`.slice(0, 11);
+  const check = checksumUPCA(`${withoutCheck}0`)
     ? 0
-    : calcEAN13Checksum(`0${digits12}`); // fallback calculation if UPC-A checksum helper fails
-  const upcA = `${digits12}${checkDigit}`;
-  return upcA;
+    : calcEAN13Checksum(`0${withoutCheck}`);
+  return `${withoutCheck}${check}`;
 }
-
-export type NormalizedGTIN = { primary: string; aliases: string[] };
 
 export function normalizeGTIN(symbology: Symbology, code: string): NormalizedGTIN {
   if (!code) return { primary: "", aliases: [] };

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import Scanner from "../components/Scanner";
+import { DetectedPayload } from "../utils/barcode";
 import { useLocationSelection } from "../contexts/LocationContext";
 
 export default function AddStockPage() {
@@ -13,7 +14,8 @@ export default function AddStockPage() {
   const { mode, location: currentLocation, openSelector } = useLocationSelection();
   const activeLocationId = mode === "location" ? currentLocation?.id ?? null : null;
 
-  async function onDetected(code: string) {
+  async function onDetected(payload: DetectedPayload) {
+    const code = payload.normalized.primary || payload.raw;
     setBarcode(code);
     setProduct(null);
     setMatches([]);
@@ -75,7 +77,11 @@ export default function AddStockPage() {
           <div className="text-xs text-gray-600">Barcode manuale</div>
           <input className="input" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Inserisci barcode" />
         </div>
-        <button className="btn" onClick={() => onDetected(barcode)} disabled={!barcode}>
+        <button
+          className="btn"
+          onClick={() => onDetected({ raw: barcode, symbology: "EAN_13", normalized: { primary: barcode, aliases: [] } })}
+          disabled={!barcode}
+        >
           Cerca
         </button>
       </div>
