@@ -25,10 +25,15 @@ def low_stock(limit: int = 10, db: Session = Depends(get_db)):
 
 @router.post("/movement", response_model=schemas.MovementOut)
 def movement(m: schemas.MovementCreate, db: Session = Depends(get_db)):
+    if m.qty_change <= 0:
+        raise HTTPException(400, "qty_change deve essere positivo")
     if m.type == "transfer":
         if not (m.from_location_id and m.to_location_id and m.qty_change > 0):
             raise HTTPException(400, "Transfer non valido")
-        mv = crud.transfer_stock(db, m.product_id, m.from_location_id, m.to_location_id, m.qty_change)
+        try:
+            mv = crud.transfer_stock(db, m.product_id, m.from_location_id, m.to_location_id, m.qty_change)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
         return mv
     elif m.type in ("in", "sell"):
         loc = m.to_location_id if m.type == "in" else m.from_location_id
@@ -39,13 +44,24 @@ def movement(m: schemas.MovementCreate, db: Session = Depends(get_db)):
         from ..models import Location
         if not db.scalar(select(Location).where(Location.id == loc)):
             raise HTTPException(400, "Location inesistente")
+        sale_price = None
+        if m.type == "sell":
+            if m.sale_price is None or m.sale_price < 0:
+                raise HTTPException(400, "Prezzo di vendita mancante")
+            sale_price = m.sale_price
         delta = m.qty_change if m.type == "in" else -abs(m.qty_change)
-        mv = crud.upsert_stock(db, m.product_id, loc, delta, m.type, m.note)
+        try:
+            mv = crud.upsert_stock(db, m.product_id, loc, delta, m.type, m.note, sale_price=sale_price)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
         return mv
     elif m.type == "out":
         if not m.from_location_id:
             raise HTTPException(400, "from_location_id richiesto")
-        mv = crud.upsert_stock(db, m.product_id, m.from_location_id, -abs(m.qty_change), "out", m.note)
+        try:
+            mv = crud.upsert_stock(db, m.product_id, m.from_location_id, -abs(m.qty_change), "out", m.note)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
         return mv
     else:
         raise HTTPException(400, "Tipo non supportato")
