@@ -1,10 +1,12 @@
 // frontend/src/pages/ReceivePage.tsx
 import React, { useRef, useState } from "react";
 import { api } from "../api";
-import { lookupBarcode } from "../lib/barcode-lookup";
+import { lookupProduct } from "../lib/product-lookup";
 import { useLocationSelection } from "../contexts/LocationContext";
 import ScanInput from "../components/ScanInput";
 import BarcodeModal from "../components/BarcodeModal";
+import ProductLookupInfo from "../components/ProductLookupInfo";
+import type { ProductEnrichment } from "../lib/product-lookup";
 
 export default function ReceivePage() {
   const [form, setForm] = useState({
@@ -28,6 +30,7 @@ export default function ReceivePage() {
   const [addStockQty, setAddStockQty] = useState(1);
   const [scannerOpen, setScannerOpen] = useState(false);
   const barcodeInputRef = useRef<HTMLInputElement | null>(null);
+  const [lookupInfo, setLookupInfo] = useState<ProductEnrichment | null>(null);
   const { mode, location: currentLocation, openSelector } = useLocationSelection();
   const activeLocationId = mode === "location" ? currentLocation?.id ?? null : null;
   const activeLocationName = mode === "location" ? currentLocation?.name ?? "" : "";
@@ -116,6 +119,7 @@ export default function ReceivePage() {
     setErr(null);
     setMsg(null);
     setExistingProduct(null);
+    setLookupInfo(null);
 
     const existing = await checkExistingProduct(code);
 
@@ -132,30 +136,34 @@ export default function ReceivePage() {
       return;
     }
 
-    try {
-      const productInfo = await lookupBarcode(code);
-      if (productInfo) {
-        setForm((f) => ({
-          ...f,
-          barcode: code,
-          title: productInfo.title || "",
-          brand: productInfo.brand || "",
-          description: productInfo.description || "",
-          image_url: productInfo.image_url || "",
-          weight_g: productInfo.weight || "",
-        }));
-        setMsg("Informazioni prodotto caricate automaticamente dal database barcode!");
-      } else {
-        setForm((f) => ({ ...f, barcode: code }));
-        setMsg("Barcode scansionato. Inserisci le informazioni prodotto.");
-      }
-    } catch (e) {
-      console.warn("Errore ricerca barcode:", e);
-      setForm((f) => ({ ...f, barcode: code }));
-      setMsg("Barcode scansionato. Inserisci le informazioni prodotto.");
-    } finally {
-      setLoadingBarcode(false);
-    }
+          try {
+            const enrichment = await lookupProduct(code);
+            if (enrichment?.found) {
+              setForm((f) => ({
+                ...f,
+                barcode: code,
+                title: enrichment.title || f.title || "",
+                brand: enrichment.brand || f.brand || "",
+                description: enrichment.description || f.description || "",
+                image_url: enrichment.image?.url || f.image_url || "",
+              }));
+              setMsg(
+                `Informazioni prodotto caricate automaticamente${enrichment.source ? ` da ${enrichment.source}` : ""}!`
+              );
+              setLookupInfo(enrichment);
+            } else {
+              setLookupInfo(enrichment || { found: false, gtin: code });
+              setForm((f) => ({ ...f, barcode: code }));
+              setMsg("Barcode scansionato. Inserisci le informazioni prodotto.");
+            }
+          } catch (e) {
+            console.warn("Errore ricerca barcode:", e);
+            setForm((f) => ({ ...f, barcode: code }));
+            setMsg("Barcode scansionato. Inserisci le informazioni prodotto.");
+            setLookupInfo(null);
+          } finally {
+            setLoadingBarcode(false);
+          }
   }
 
   return (
@@ -182,6 +190,7 @@ export default function ReceivePage() {
         onDetected={handleBarcodeDetected}
         focusRef={barcodeInputRef}
       />
+      <ProductLookupInfo data={lookupInfo} loading={loadingBarcode} />
 
       {loadingBarcode && (
         <div className="text-sm text-blue-600">Ricerca informazioni prodotto...</div>
@@ -252,7 +261,7 @@ export default function ReceivePage() {
               onChange={(value) => setForm({ ...form, barcode: value })}
               onScan={handleBarcodeDetected}
               onRequestScan={() => setScannerOpen(true)}
-              autoFocus
+              autoFocusOnMount
             />
             <input
               className="input"

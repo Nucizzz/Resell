@@ -3,6 +3,8 @@ import { api } from "../api";
 import { useLocationSelection } from "../contexts/LocationContext";
 import ScanInput from "../components/ScanInput";
 import BarcodeModal from "../components/BarcodeModal";
+import ProductLookupInfo from "../components/ProductLookupInfo";
+import { lookupProduct, type ProductEnrichment } from "../lib/product-lookup";
 
 export default function SellPage() {
   const [product, setProduct] = useState<any>(null);
@@ -16,6 +18,8 @@ export default function SellPage() {
   const [barcode, setBarcode] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
   const barcodeInputRef = useRef<HTMLInputElement | null>(null);
+  const [lookupInfo, setLookupInfo] = useState<ProductEnrichment | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
   const { mode, location: currentLocation, locations, openSelector } = useLocationSelection();
   const activeLocationId = mode === "location" ? currentLocation?.id ?? null : null;
   const locationName = currentLocation?.name ?? "";
@@ -48,6 +52,16 @@ export default function SellPage() {
     setProducts([]);
     setProductsWithStock([]);
     setAvailableQty(null);
+    setLookupInfo(null);
+    setLookupLoading(true);
+    try {
+      const info = await lookupProduct(code);
+      setLookupInfo(info);
+    } catch {
+      setLookupInfo(null);
+    } finally {
+      setLookupLoading(false);
+    }
     try {
       try {
         const resAll = await api.get(`/products/barcode/${encodeURIComponent(code)}/all`);
@@ -183,6 +197,7 @@ export default function SellPage() {
           Cerca
         </button>
       </div>
+      <ProductLookupInfo data={lookupInfo} loading={lookupLoading} />
       <BarcodeModal
         open={scannerOpen}
         onOpenChange={setScannerOpen}
