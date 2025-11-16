@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Barcode, Keyboard, Loader2 } from "lucide-react";
-import Scanner, { type DetectedPayload } from "./Scanner";
+import Scanner from "./Scanner";
 
 export type SearchResult = {
   id: string;
@@ -39,7 +39,7 @@ export async function searchByBarcode(code: string): Promise<SearchItem> {
 type SearchWithScannerProps = {
   placeholder?: string;
   onTextSearch?: (query: string) => Promise<void> | void;
-  onBarcodeDetected?: (payload: DetectedPayload) => Promise<void> | void;
+  onBarcodeDetected?: (barcode: string) => Promise<void> | void;
   enableCode128?: boolean;
   mockApis?: boolean;
 };
@@ -60,22 +60,6 @@ export default function SearchWithScanner({
   const [lastItem, setLastItem] = useState<SearchItem | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerKey, setScannerKey] = useState(0);
-  const [preferExternal, setPreferExternal] = useState(true);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const callbackCode = params.get("scan") || params.get("SCAN_RESULT");
-    if (callbackCode) {
-      handleBarcode(callbackCode);
-      params.delete("scan");
-      params.delete("SCAN_RESULT");
-      const next = params.toString();
-      const newUrl = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
-      window.history.replaceState({}, "", newUrl);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -108,8 +92,7 @@ export default function SearchWithScanner({
     }
   };
 
-  const handleBarcode = async (payload: DetectedPayload | string) => {
-    const code = typeof payload === "string" ? payload : payload.raw;
+  const handleBarcode = async (code: string) => {
     setScannerError(null);
     setRecentScans((prev) => [code, ...prev.filter((entry) => entry !== code)].slice(0, 6));
     if (mockApis) {
@@ -122,11 +105,7 @@ export default function SearchWithScanner({
       }
     }
     try {
-      if (typeof payload === "string") {
-        await onBarcodeDetected?.({ raw: payload, symbology: "EAN_13", normalized: { primary: payload, aliases: [] } });
-      } else {
-        await onBarcodeDetected?.(payload);
-      }
+      await onBarcodeDetected?.(code);
     } catch (err: any) {
       setScannerError(err?.message || "Errore durante l'elaborazione del barcode");
     }
@@ -140,25 +119,6 @@ export default function SearchWithScanner({
       `fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-4 ${scannerOpen ? "" : "pointer-events-none"}`,
     [scannerOpen]
   );
-
-  const externalScannerUrl = useMemo(() => {
-    if (typeof window === "undefined") return "zxing://scan";
-    const retUrl = `${window.location.origin}${window.location.pathname}?scan=%7BCODE%7D${window.location.hash}`;
-    const formats = enableCode128
-      ? "EAN_13,EAN_8,UPC_A,UPC_E,CODE_128"
-      : "EAN_13,EAN_8,UPC_A,UPC_E";
-    const intent = `zxing://scan/?ret=${encodeURIComponent(retUrl)}&SCAN_FORMATS=${formats}`;
-    return intent;
-  }, [enableCode128]);
-
-  const triggerExternalScanner = () => {
-    try {
-      window.location.href = externalScannerUrl;
-    } catch (err: any) {
-      setScannerError("Impossibile aprire lo scanner esterno");
-      console.error("External scanner launch failed", err);
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -216,55 +176,12 @@ export default function SearchWithScanner({
             </button>
           </div>
           <div className="space-y-4 p-4">
-            <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3 text-sm text-amber-900">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <div className="font-semibold">Scanner esterno consigliato</div>
-                  <p className="text-xs text-amber-800">
-                    Usa l'app "ZXing Barcode Scanner" (gratuita) per massima precisione e restituisce il
-                    codice a questa pagina.
-                  </p>
-                </div>
-                <label className="flex items-center gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={preferExternal}
-                    onChange={(e) => setPreferExternal(e.target.checked)}
-                  />
-                  Preferisci app esterna
-                </label>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button type="button" className="btn" onClick={triggerExternalScanner}>
-                  Apri app ZXing
-                </button>
-                <a className="btn" href={externalScannerUrl} rel="noreferrer">
-                  Link alternativo
-                </a>
-              </div>
-              <p className="mt-2 text-xs text-amber-800">
-                Se l'app è installata su Android/iOS aprirà lo scanner nativo; al ritorno il barcode appare in
-                "Ultime scansioni".
-              </p>
-            </div>
-
-            {!preferExternal && (
-              <Scanner
-                key={scannerKey}
-                onDetected={handleBarcode}
-                onError={(msg) => setScannerError(msg)}
-                enableCode128={enableCode128}
-              />
-            )}
-
-            {preferExternal && (
-              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
-                <div className="font-semibold">Scanner interno (backup)</div>
-                <p className="text-xs text-gray-500">
-                  Se l'app esterna non è disponibile, disattiva il toggle sopra per usare lo scanner in pagina.
-                </p>
-              </div>
-            )}
+            <Scanner
+              key={scannerKey}
+              onDetected={handleBarcode}
+              onError={(msg) => setScannerError(msg)}
+              enableCode128={enableCode128}
+            />
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={continuousScan} onChange={(e) => setContinuousScan(e.target.checked)} />
               Scansione continua

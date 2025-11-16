@@ -45,78 +45,128 @@ export default function DashboardPage() {
     ? "Le azioni stock agiscono sulla sede selezionata"
     : "Modalità consultazione: aggiorna prodotti senza muovere stock";
 
-  const visibleCards = mode === "location" ? CARDS : CARDS.filter((card) => !["receive", "sell"].includes(card.id));
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
+
+  const menuItems = [
+    {
+      id: "products",
+      icon: <Package className="h-5 w-5" />,
+      title: "Prodotti",
+      description: "Gestisci il catalogo prodotti e le informazioni",
+      route: "/products",
+      area: "md:[grid-area:1/1/2/7] xl:[grid-area:1/1/2/5]",
+    },
+    {
+      id: "receive",
+      icon: <Box className="h-5 w-5" />,
+      title: "Ricezione Merce",
+      description: "Aggiungi nuovi prodotti tramite scansione barcode",
+      route: "/receive",
+      area: "md:[grid-area:1/7/2/13] xl:[grid-area:1/5/2/9]",
+    },
+    {
+      id: "addstock",
+      icon: <PlusCircle className="h-5 w-5" />,
+      title: "Aggiungi stock",
+      description: "Carica rapidamente pezzi tramite barcode o ricerca",
+      route: "/stock/add",
+      area: "md:[grid-area:2/1/3/7] xl:[grid-area:1/9/2/13]",
+    },
+    {
+      id: "sell",
+      icon: <ShoppingCart className="h-5 w-5" />,
+      title: "Vendita",
+      description: "Registra vendite e aggiorna lo stock",
+      route: "/sell",
+      area: "md:[grid-area:2/7/3/13] xl:[grid-area:2/1/3/5]",
+    },
+    {
+      id: "inventory",
+      icon: <Warehouse className="h-5 w-5" />,
+      title: "Inventario",
+      description: "Visualizza lo stock per location e prodotto",
+      route: "/inventory",
+      area: "md:[grid-area:3/1/4/7] xl:[grid-area:2/5/3/9]",
+    },
+    {
+      id: "transfers",
+      icon: <ArrowRight className="h-5 w-5" />,
+      title: "Trasferimenti",
+      description: "Sposta prodotti tra warehouse e negozio",
+      route: "/transfers",
+      area: "md:[grid-area:3/7/4/13] xl:[grid-area:2/9/3/13]",
+    },
+    {
+      id: "analytics",
+      icon: <TrendingUp className="h-5 w-5" />,
+      title: "Analytics",
+      description: "Statistiche vendite e performance",
+      route: "/analytics",
+      area: "md:[grid-area:4/1/5/7] xl:[grid-area:3/1/4/5]",
+    },
+    {
+      id: "sales",
+      icon: <Search className="h-5 w-5" />,
+      title: "Storico Vendite",
+      description: "Visualizza lo storico delle vendite",
+      route: "/sales",
+      area: "md:[grid-area:4/7/5/13] xl:[grid-area:3/5/4/9]",
+    },
+    {
+      id: "locations",
+      icon: <Settings className="h-5 w-5" />,
+      title: "Location",
+      description: "Gestisci warehouse e negozi",
+      route: "/locations",
+      area: "md:[grid-area:5/1/6/13] xl:[grid-area:3/9/4/13]",
+    },
+  ];
+
+  const filteredMenu = mode === "location"
+    ? menuItems
+    : menuItems.filter((item) => !["receive", "sell"].includes(item.id));
 
   return (
-    <div className="space-y-8">
-      <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
-        <section className="rounded-3xl bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 p-6 text-white shadow-xl">
-          <div className="flex flex-col gap-6">
-            <div>
-              <p className="text-sm uppercase tracking-widest text-white/60">Benvenuto</p>
-              <h1 className="text-3xl font-bold">{user || "Operatore"}</h1>
-              <p className="text-sm text-white/70">Gestisci il negozio in modo centralizzato da desktop e mobile.</p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="rounded-2xl bg-white/10 p-4">
-                <p className="text-xs uppercase text-white/60">Modalità</p>
-                <p className="text-lg font-semibold">{mode === "location" ? "Operativa" : "Consultazione"}</p>
-                <p className="text-sm text-white/70">{modeHint}</p>
-              </div>
-              <div className="rounded-2xl bg-white/10 p-4">
-                <p className="text-xs uppercase text-white/60">Sede attiva</p>
-                <p className="text-lg font-semibold">{locationLabel}</p>
-                <p className="text-sm text-white/70">Aggiorna movimenti e vendite qui</p>
-              </div>
-              <div className="rounded-2xl bg-white/10 p-4">
-                <p className="text-xs uppercase text-white/60">Ultimo accesso</p>
-                <p className="text-lg font-semibold">{new Date().toLocaleDateString()}</p>
-                <p className="text-sm text-white/70">Solo indicativo lato client</p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button className="btn bg-white/20 text-white hover:bg-white/30" onClick={openSelector}>
+    <div className="space-y-6">
+      <section className="rounded-3xl bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 p-6 text-white shadow-xl">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-widest text-white/60">Benvenuto</p>
+            <h1 className="text-3xl font-bold">{user || "Operatore"}</h1>
+            <p className="text-sm text-white/70">Gestisci tutto il negozio da un'unica dashboard.</p>
+          </div>
+          <div className="flex flex-col gap-3 text-sm">
+            <div className="rounded-2xl border border-white/20 bg-white/5 p-3">
+              <div className="text-xs uppercase text-white/60">Sede corrente</div>
+              <div className="text-lg font-semibold">{locationLabel}</div>
+              <div className="text-white/70">{modeHint}</div>
+              <button className="btn mt-3 bg-white/20 text-white hover:bg-white/30" onClick={openSelector}>
                 Cambia sede
               </button>
-              <button
-                onClick={() => {
-                  logout();
-                  navigate("/login");
-                }}
-                className="btn bg-red-500/20 text-white hover:bg-red-500/40"
-              >
-                <LogOut className="h-4 w-4" />
-                <span>Logout</span>
-              </button>
             </div>
-          </div>
-        </section>
-
-        <aside className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="space-y-3">
-            <p className="text-xs uppercase text-gray-500">Sede corrente</p>
-            <h2 className="text-2xl font-semibold">{locationLabel}</h2>
-            <p className="text-sm text-gray-500">{modeHint}</p>
-            <button className="btn w-full" onClick={openSelector}>
-              Cambia rapidamente
+            <button
+              onClick={() => {
+                logout();
+                navigate("/login");
+              }}
+              className="btn bg-red-500/20 text-white hover:bg-red-500/40"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Logout</span>
             </button>
           </div>
-          <div className="mt-6 border-t pt-4 text-sm text-gray-600 space-y-2">
-            <p>Controlla ricezioni, vendite e trasferimenti senza uscire dalla pagina.</p>
-            <p className="font-semibold text-gray-900">Hai accesso a {visibleCards.length} flussi rapidi.</p>
-          </div>
-        </aside>
-      </div>
-
-      <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold">Azioni rapide</h2>
-            <p className="text-sm text-gray-500">Scegli il flusso operativo da avviare</p>
-          </div>
-          <p className="text-xs uppercase text-gray-400">Desktop ready</p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Azioni rapide</h2>
+          <p className="text-sm text-gray-500">Ottimizzato per desktop e mobile</p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {visibleCards.map((card) => (
             <button
               key={card.id}

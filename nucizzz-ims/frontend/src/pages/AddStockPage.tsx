@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
-import SearchWithScanner from "../components/SearchWithScanner";
+import Scanner from "../components/Scanner";
 import { useLocationSelection } from "../contexts/LocationContext";
 
 export default function AddStockPage() {
+  const [barcode, setBarcode] = useState("");
   const [product, setProduct] = useState<any | null>(null);
   const [matches, setMatches] = useState<any[]>([]);
   const [message, setMessage] = useState("");
@@ -13,6 +14,7 @@ export default function AddStockPage() {
   const activeLocationId = mode === "location" ? currentLocation?.id ?? null : null;
 
   async function onDetected(code: string) {
+    setBarcode(code);
     setProduct(null);
     setMatches([]);
     setMessage("");
@@ -67,12 +69,16 @@ export default function AddStockPage() {
           Seleziona una location per assegnare correttamente lo stock.
         </div>
       )}
-      <SearchWithScanner
-        placeholder="Scansiona o cerca barcode"
-        onBarcodeDetected={onDetected}
-        onTextSearch={onDetected}
-        mockApis={false}
-      />
+      <Scanner onDetected={onDetected} />
+      <div className="flex gap-2 items-end">
+        <div>
+          <div className="text-xs text-gray-600">Barcode manuale</div>
+          <input className="input" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Inserisci barcode" />
+        </div>
+        <button className="btn" onClick={() => onDetected(barcode)} disabled={!barcode}>
+          Cerca
+        </button>
+      </div>
       {loading && <div className="text-sm">Ricerca in corso…</div>}
       {matches.length > 1 && (
         <div className="space-y-2">
