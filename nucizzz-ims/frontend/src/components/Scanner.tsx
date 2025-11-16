@@ -88,7 +88,7 @@ export default function Scanner({ onDetected, onError, enableCode128 }: ScannerP
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(true);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [deviceId, setDeviceId] = useState<string | undefined>(undefined);
+  const [deviceId, setDeviceId] = useState<string>("");
   const [torch, setTorch] = useState(false);
   const [status, setStatus] = useState("Scanner fermo");
   const detectionHistory = useRef<DetectionHit[]>([]);
@@ -303,6 +303,38 @@ export default function Scanner({ onDetected, onError, enableCode128 }: ScannerP
         setStatus("Errore fotocamera");
         userStream?.getTracks().forEach(track => track.stop());
       }
+    };
+    window.addEventListener("devicemotion", motion, { passive: true });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+      window.removeEventListener("devicemotion", motion);
+      stopScanner();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId, readers, running, enableCode128]);
+
+  useEffect(() => {
+    const track = videoTrackRef.current;
+    if (!track) return;
+    tuneTrack(track, torch, setTorchAvailable).catch((err) => console.warn("Torch constraint error", err));
+  }, [torch]);
+
+  const pruneHits = (now: number) => {
+    detectionHistory.current = detectionHistory.current.filter((hit) => now - hit.timestamp <= DETECTION_WINDOW_MS);
+  };
+
+  const summarize = (now: number) => {
+    const buckets = new Map<string, { hits: number; weighted: number; weight: number; symbology: Symbology }>();
+    for (const hit of detectionHistory.current) {
+      const weight = Math.exp(-(now - hit.timestamp) / DECAY_MS);
+      const current = buckets.get(hit.code) || { hits: 0, weighted: 0, weight: 0, symbology: hit.symbology };
+      current.hits += 1;
+      current.weighted += hit.confidence * weight;
+      current.weight += weight;
+      current.symbology = hit.symbology;
+      buckets.set(hit.code, current);
     }
   };
 
@@ -318,8 +350,47 @@ export default function Scanner({ onDetected, onError, enableCode128 }: ScannerP
     return canvas;
   };
 
-    return () => {
-      mounted = false;
+  const shouldAccept = (
+    candidate?: { code: string; hits: number; meanConfidence: number; symbology: Symbology },
+    runnerUp?: { code: string; hits: number; meanConfidence: number },
+    streak = 0,
+  ) => {
+    if (!candidate) return false;
+    const dominanceHits = runnerUp ? candidate.hits - runnerUp.hits >= RUNNER_HIT_GAP : true;
+    const dominanceConf = runnerUp ? candidate.meanConfidence - runnerUp.meanConfidence >= RUNNER_DELTA : true;
+    const threshold = candidate.hits >= MIN_HITS && candidate.meanConfidence >= MIN_CONFIDENCE;
+    const strongStreak = streak >= HIGH_CONF_STREAK;
+    return (threshold && (dominanceHits || dominanceConf)) || strongStreak;
+  };
+
+  const finalize = async (candidate: { code: string; symbology: Symbology }) => {
+    detectionHistory.current = [];
+    setStatus("Verifica finale…");
+    try {
+      const verified = await verifyCandidate(candidate.code);
+      const finalCode = verified || candidate.code;
+      const sym = symbologyFromResult(undefined, finalCode);
+      const normalized = normalizeGTIN(sym, finalCode);
+      lastConfirmedRef.current = { code: finalCode, timestamp: Date.now() };
+      navigator.vibrate?.(30);
+      await onDetected({ raw: finalCode, symbology: sym, normalized, imageData: undefined });
+      setStatus(STATUS_DEFAULT);
+    } catch (err) {
+      console.error("Finalize detection error", err);
+      const message = "Errore durante la verifica del barcode";
+      setError(message);
+      onError?.(message);
+    }
+  };
+
+  const verifyCandidate = async (code: string): Promise<string | null> => {
+    const video = containerRef.current?.querySelector("video");
+    if (!video) return null;
+    const roiCanvas = cropToROI(video, 1.5);
+    if (!roiCanvas) return null;
+
+    const zxing = await loadZXing();
+    if (zxing) {
       try {
         // Rimuovi listener
         if (handlerRef.current) {
