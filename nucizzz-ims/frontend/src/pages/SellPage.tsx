@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import SearchWithScanner from "../components/SearchWithScanner";
 import { useLocationSelection } from "../contexts/LocationContext";
+import ScanInput from "../components/ScanInput";
+import BarcodeModal from "../components/BarcodeModal";
 
 export default function SellPage() {
   const [product, setProduct] = useState<any>(null);
@@ -12,6 +13,9 @@ export default function SellPage() {
   const [availableQty, setAvailableQty] = useState<number | null>(null);
   const [loadingStock, setLoadingStock] = useState(false);
   const [isSelling, setIsSelling] = useState(false);
+  const [barcode, setBarcode] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const barcodeInputRef = useRef<HTMLInputElement | null>(null);
   const { mode, location: currentLocation, locations, openSelector } = useLocationSelection();
   const activeLocationId = mode === "location" ? currentLocation?.id ?? null : null;
   const locationName = currentLocation?.name ?? "";
@@ -39,6 +43,7 @@ export default function SellPage() {
   }
 
   async function onDetected(code: string) {
+    if (!code) return;
     setProduct(null);
     setProducts([]);
     setProductsWithStock([]);
@@ -161,11 +166,32 @@ export default function SellPage() {
   return (
     <div className="p-4 space-y-3">
       <h1 className="text-xl font-semibold">Vendi</h1>
-      <SearchWithScanner
+      <ScanInput
+        ref={barcodeInputRef}
         placeholder="Scansiona o cerca barcode"
-        onTextSearch={onDetected}
-        onBarcodeDetected={onDetected}
-        mockApis={false}
+        value={barcode}
+        onChange={setBarcode}
+        onScan={async (code) => {
+          setBarcode(code);
+          setScannerOpen(false);
+          await onDetected(code);
+        }}
+        onRequestScan={() => setScannerOpen(true)}
+      />
+      <div className="flex justify-end">
+        <button className="btn" onClick={searchBarcode} disabled={!barcode}>
+          Cerca
+        </button>
+      </div>
+      <BarcodeModal
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        onDetected={async (code) => {
+          setScannerOpen(false);
+          setBarcode(code);
+          await onDetected(code);
+        }}
+        focusRef={barcodeInputRef}
       />
       <div className="flex flex-wrap gap-4 items-end">
         <div>

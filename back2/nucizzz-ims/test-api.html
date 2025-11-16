@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h1>Testing API Endpoints</h1>
+    <div id="results"></div>
+    <script>
+        const results = document.getElementById('results');
+        const apiUrl = 'http://localhost:8002/api';
+        
+        const tests = [
+            { method: 'GET', url: `${apiUrl}/products`, description: 'GET Products' },
+            { method: 'OPTIONS', url: `${apiUrl}/products`, description: 'OPTIONS Products' },
+            { method: 'GET', url: `${apiUrl}/locations`, description: 'GET Locations' },
+            { method: 'OPTIONS', url: `${apiUrl}/locations`, description: 'OPTIONS Locations' },
+            { method: 'GET', url: `${apiUrl}/stock/low`, description: 'GET Stock Low' },
+            { method: 'OPTIONS', url: `${apiUrl}/stock/low`, description: 'OPTIONS Stock Low' },
+            { method: 'POST', url: `${apiUrl}/products/receive`, description: 'POST Products Receive' },
+            { method: 'OPTIONS', url: `${apiUrl}/products/receive`, description: 'OPTIONS Products Receive' },
+            { method: 'POST', url: `${apiUrl}/uploads`, description: 'POST Uploads' },
+            { method: 'OPTIONS', url: `${apiUrl}/uploads`, description: 'OPTIONS Uploads' }
+        ];
+        
+        async function runTests() {
+            for (const test of tests) {
+                try {
+                    const options = { method: test.method };
+                    if (test.method === 'POST') {
+                        options.headers = { 'Content-Type': 'application/json' };
+                        options.body = JSON.stringify({ test: 'data' });
+                    }
+                    
+                    const response = await fetch(test.url, options);
+                    const result = document.createElement('div');
+                    result.innerHTML = `${test.description}: <span style="color: ${response.ok ? 'green' : 'red'}">${response.status} ${response.statusText}</span>`;
+                    results.appendChild(result);
+                } catch (error) {
+                    const result = document.createElement('div');
+                    result.innerHTML = `${test.description}: <span style="color: red">ERROR: ${error.message}</span>`;
+                    results.appendChild(result);
+                }
+            }
+        }
+        
+        runTests();
+    </script>
+</body>
+</html>

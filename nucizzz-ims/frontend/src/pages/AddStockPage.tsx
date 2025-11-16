@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
-import Scanner from "../components/Scanner";
-import { DetectedPayload } from "../utils/barcode";
 import { useLocationSelection } from "../contexts/LocationContext";
+import ScanInput from "../components/ScanInput";
+import BarcodeModal from "../components/BarcodeModal";
 
 export default function AddStockPage() {
   const [barcode, setBarcode] = useState("");
@@ -12,10 +12,13 @@ export default function AddStockPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const { mode, location: currentLocation, openSelector } = useLocationSelection();
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const barcodeInputRef = useRef<HTMLInputElement | null>(null);
   const activeLocationId = mode === "location" ? currentLocation?.id ?? null : null;
 
-  async function onDetected(payload: DetectedPayload) {
-    const code = payload.normalized.primary || payload.raw;
+  async function onDetected(code: string) {
+    if (!code) return;
+    setScannerOpen(false);
     setBarcode(code);
     setProduct(null);
     setMatches([]);
@@ -71,20 +74,25 @@ export default function AddStockPage() {
           Seleziona una location per assegnare correttamente lo stock.
         </div>
       )}
-      <Scanner onDetected={onDetected} />
-      <div className="flex gap-2 items-end">
-        <div>
-          <div className="text-xs text-gray-600">Barcode manuale</div>
-          <input className="input" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Inserisci barcode" />
-        </div>
-        <button
-          className="btn"
-          onClick={() => onDetected({ raw: barcode, symbology: "EAN_13", normalized: { primary: barcode, aliases: [] } })}
-          disabled={!barcode}
-        >
+      <ScanInput
+        ref={barcodeInputRef}
+        placeholder="Scansiona o inserisci barcode"
+        value={barcode}
+        onChange={setBarcode}
+        onScan={onDetected}
+        onRequestScan={() => setScannerOpen(true)}
+      />
+      <div className="flex justify-end">
+        <button className="btn" onClick={() => onDetected(barcode)} disabled={!barcode}>
           Cerca
         </button>
       </div>
+      <BarcodeModal
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        onDetected={onDetected}
+        focusRef={barcodeInputRef}
+      />
       {loading && <div className="text-sm">Ricerca in corso…</div>}
       {matches.length > 1 && (
         <div className="space-y-2">

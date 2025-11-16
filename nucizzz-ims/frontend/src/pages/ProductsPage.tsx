@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState, useContext } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api"; // usa il tuo helper esistente
-import Scanner from "../components/Scanner";
 import { useLocationSelection } from "../contexts/LocationContext";
+import ScanInput from "../components/ScanInput";
+import BarcodeModal from "../components/BarcodeModal";
 
 type Product = {
   id: number;
@@ -21,6 +22,7 @@ export default function ProductsPage() {
   const [rows, setRows] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  const barcodeInputRef = useRef<HTMLInputElement | null>(null);
   const [msg, setMsg] = useState("");
   const [brand, setBrand] = useState<string>("");
   const [onlyActive, setOnlyActive] = useState<boolean>(true);
@@ -46,10 +48,11 @@ export default function ProductsPage() {
     }
   }, [mode]);
 
-  async function load() {
+  async function load(search?: string) {
     setLoading(true);
     try {
-      const res = await api.get("/products/with-stock", { params: { q, limit: 100 } });
+      const query = typeof search === "string" ? search : q;
+      const res = await api.get("/products/with-stock", { params: { q: query, limit: 100 } });
       const payload = res.data;
       if (Array.isArray(payload)) {
         setRows(
@@ -74,7 +77,6 @@ export default function ProductsPage() {
 
   useEffect(() => {
     if (scanOpen) {
-      // scroll to top to ensure modal is fully visible on mobile
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, [scanOpen]);
@@ -139,16 +141,25 @@ export default function ProductsPage() {
     return loc ? loc.name : `Location ${id}`;
   };
 
+  const handleScan = async (code: string) => {
+    if (!code) return;
+    setScanOpen(false);
+    setQ(code);
+    await load(code);
+  };
+
   return (
     <div className="p-4 space-y-3">
       <h1 className="text-xl font-semibold">Prodotti</h1>
       {loading && skeleton}
       <div className="flex gap-2 flex-wrap">
-        <input
-          className="input"
+        <ScanInput
+          ref={barcodeInputRef}
           placeholder="Cerca SKU/Barcode/Titolo"
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={setQ}
+          onScan={(code) => handleScan(code)}
+          onRequestScan={() => setScanOpen(true)}
         />
         <div>
           <div className="text-xs text-gray-600">Marca</div>
@@ -187,11 +198,8 @@ export default function ProductsPage() {
             <option value="desc">Desc</option>
           </select>
         </div>
-        <button className="btn" onClick={load} disabled={loading}>
+        <button className="btn" onClick={() => load()} disabled={loading}>
           {loading ? "..." : "Cerca"}
-        </button>
-        <button className="btn" onClick={() => setScanOpen(true)}>
-          Scansiona barcode
         </button>
         <a className="btn" href="/products/new">
           Nuovo prodotto
@@ -312,29 +320,12 @@ export default function ProductsPage() {
         </select>
       </div>
 
-      {scanOpen && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg w-full max-w-md p-3 space-y-2">
-            <div className="flex justify-between items-center">
-              <div className="font-medium">Scanner barcode</div>
-              <button
-                className="btn bg-gray-100"
-                onClick={() => setScanOpen(false)}
-              >
-                Chiudi
-              </button>
-            </div>
-            <Scanner
-              onDetected={async (payload) => {
-                const code = payload.normalized.primary || payload.raw;
-                setScanOpen(false);
-                setQ(code);
-                await load();
-              }}
-            />
-          </div>
-        </div>
-      )}
+      <BarcodeModal
+        open={scanOpen}
+        onOpenChange={setScanOpen}
+        onDetected={(code) => handleScan(code)}
+        focusRef={barcodeInputRef}
+      />
     </div>
   );
 }

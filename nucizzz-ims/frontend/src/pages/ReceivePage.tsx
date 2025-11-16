@@ -1,9 +1,10 @@
 // frontend/src/pages/ReceivePage.tsx
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { api } from "../api";
-import Scanner from "../components/Scanner";
 import { lookupBarcode } from "../lib/barcode-lookup";
 import { useLocationSelection } from "../contexts/LocationContext";
+import ScanInput from "../components/ScanInput";
+import BarcodeModal from "../components/BarcodeModal";
 
 export default function ReceivePage() {
   const [form, setForm] = useState({
@@ -25,6 +26,8 @@ export default function ReceivePage() {
   const [existingProduct, setExistingProduct] = useState<any>(null);
   const [showAddStockDialog, setShowAddStockDialog] = useState(false);
   const [addStockQty, setAddStockQty] = useState(1);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const barcodeInputRef = useRef<HTMLInputElement | null>(null);
   const { mode, location: currentLocation, openSelector } = useLocationSelection();
   const activeLocationId = mode === "location" ? currentLocation?.id ?? null : null;
   const activeLocationName = mode === "location" ? currentLocation?.name ?? "" : "";
@@ -105,6 +108,56 @@ export default function ReceivePage() {
     }
   }
 
+  async function handleBarcodeDetected(code: string) {
+    if (!code) return;
+    setScannerOpen(false);
+    setForm((f) => ({ ...f, barcode: code }));
+    setLoadingBarcode(true);
+    setErr(null);
+    setMsg(null);
+    setExistingProduct(null);
+
+    const existing = await checkExistingProduct(code);
+
+    if (existing) {
+      if (activeLocationId) {
+        setExistingProduct(existing);
+        setShowAddStockDialog(true);
+      } else {
+        setExistingProduct(null);
+        setShowAddStockDialog(false);
+        setMsg("Prodotto già presente nel sistema. Seleziona una location per aggiungere stock.");
+      }
+      setLoadingBarcode(false);
+      return;
+    }
+
+    try {
+      const productInfo = await lookupBarcode(code);
+      if (productInfo) {
+        setForm((f) => ({
+          ...f,
+          barcode: code,
+          title: productInfo.title || "",
+          brand: productInfo.brand || "",
+          description: productInfo.description || "",
+          image_url: productInfo.image_url || "",
+          weight_g: productInfo.weight || "",
+        }));
+        setMsg("Informazioni prodotto caricate automaticamente dal database barcode!");
+      } else {
+        setForm((f) => ({ ...f, barcode: code }));
+        setMsg("Barcode scansionato. Inserisci le informazioni prodotto.");
+      }
+    } catch (e) {
+      console.warn("Errore ricerca barcode:", e);
+      setForm((f) => ({ ...f, barcode: code }));
+      setMsg("Barcode scansionato. Inserisci le informazioni prodotto.");
+    } finally {
+      setLoadingBarcode(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold">Ricezione merce</h2>
@@ -123,61 +176,13 @@ export default function ReceivePage() {
         )}
       </div>
 
-      <Scanner
-        onDetected={async (payload) => {
-          const code = payload.normalized.primary || payload.raw;
-          setForm((f) => ({ ...f, barcode: code }));
-          setLoadingBarcode(true);
-          setErr(null);
-          setMsg(null);
-          setExistingProduct(null);
-          
-          // Verifica se il prodotto esiste già
-          const existing = await checkExistingProduct(code);
-          
-          if (existing) {
-            if (activeLocationId) {
-              // Prodotto esistente: mostra dialog per aggiungere stock
-              setExistingProduct(existing);
-              setShowAddStockDialog(true);
-            } else {
-              setExistingProduct(null);
-              setShowAddStockDialog(false);
-              setMsg("Prodotto già presente nel sistema. Seleziona una location per aggiungere stock.");
-            }
-            setLoadingBarcode(false);
-            return;
-          }
-          
-          // Prodotto non esiste: cerca informazioni e mostra form
-          try {
-            const productInfo = await lookupBarcode(code);
-            if (productInfo) {
-              setForm((f) => ({
-                ...f,
-                barcode: code,
-                title: productInfo.title || "",
-                brand: productInfo.brand || "",
-                description: productInfo.description || "",
-                image_url: productInfo.image_url || "",
-                weight_g: productInfo.weight || "",
-              }));
-              setMsg("Informazioni prodotto caricate automaticamente dal database barcode!");
-            } else {
-              setForm((f) => ({ ...f, barcode: code }));
-              setMsg("Barcode scansionato. Inserisci le informazioni prodotto.");
-            }
-          } catch (e) {
-            console.warn("Errore ricerca barcode:", e);
-            setForm((f) => ({ ...f, barcode: code }));
-            setMsg("Barcode scansionato. Inserisci le informazioni prodotto.");
-          } finally {
-            setLoadingBarcode(false);
-          }
-        }}
-        onError={(m) => setErr(m)}
+      <BarcodeModal
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        onDetected={handleBarcodeDetected}
+        focusRef={barcodeInputRef}
       />
-      
+
       {loadingBarcode && (
         <div className="text-sm text-blue-600">Ricerca informazioni prodotto...</div>
       )}
@@ -240,12 +245,14 @@ export default function ReceivePage() {
       {!showAddStockDialog && (
         <>
           <div className="grid md:grid-cols-2 gap-3">
-            <input
-              className="input"
+            <ScanInput
+              ref={barcodeInputRef}
               placeholder="Barcode *"
               value={form.barcode}
-              onChange={(e) => setForm({ ...form, barcode: e.target.value })}
-              required
+              onChange={(value) => setForm({ ...form, barcode: value })}
+              onScan={handleBarcodeDetected}
+              onRequestScan={() => setScannerOpen(true)}
+              autoFocus
             />
             <input
               className="input"

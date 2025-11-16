@@ -4,6 +4,7 @@ import { NavLink } from "react-router-dom";
 import { api } from "../api";
 import { ToastContext } from "../App";
 import { useLocationSelection } from "../contexts/LocationContext";
+import { useCloseDropdownOnRouteChange } from "../hooks/useCloseDropdownOnRouteChange";
 
 const linkBase = "px-3 py-2 rounded-lg";
 const active = "bg-black text-white";
@@ -12,6 +13,7 @@ const idle = "bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-
 export default function Topbar() {
   const [open, setOpen] = React.useState(false);
   const [dark, setDark] = React.useState(false);
+  const dropdownRef = React.useRef<HTMLDivElement | null>(null);
   const toast = useContext(ToastContext);
   const { mode, location, openSelector } = useLocationSelection();
 
@@ -23,6 +25,8 @@ export default function Topbar() {
     setDark(v);
     document.documentElement.classList.toggle("dark", v);
   }, []);
+
+  useCloseDropdownOnRouteChange(open, () => setOpen(false), dropdownRef);
 
   function toggleTheme() {
     const v = !dark;
@@ -50,7 +54,7 @@ export default function Topbar() {
   }, []);
 
   return (
-    <div className="sticky top-0 z-20 backdrop-blur bg-white/70 dark:bg-gray-900/70 py-2 px-2 rounded-xl">
+    <div ref={dropdownRef} className="sticky top-0 z-20 backdrop-blur bg-white/70 dark:bg-gray-900/70 py-2 px-2 rounded-xl">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">Nucizzz IMS</h1>
