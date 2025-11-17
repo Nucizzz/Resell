@@ -1,0 +1,1 @@
+# Open/community barcode providers

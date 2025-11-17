@@ -1,0 +1,1 @@
+# RapidAPI-backed barcode providers

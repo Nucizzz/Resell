@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
 from os import getenv
 from pathlib import Path
+from typing import List
 import logging
 
 from .database import Base, engine, SessionLocal
@@ -10,14 +11,49 @@ from .routers import products, locations, stock, uploads, shopify
 from . import crud
 
 API_BASE = getenv("API_BASE_PATH", "/api")
+PUBLIC_HOSTNAME = getenv("PUBLIC_HOSTNAME", "").strip()
+FRONTEND_ORIGIN = getenv("FRONTEND_ORIGIN", "").strip()
+EXTRA_ALLOWED_ORIGINS = getenv("ADDITIONAL_ALLOWED_ORIGINS", "")
 logger = logging.getLogger(__name__)
+
+
+def _normalize_origin(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return ""
+    if value.startswith("http://") or value.startswith("https://"):
+        return value.rstrip("/")
+    return f"https://{value}".rstrip("/")
+
+
+def _build_allowed_origins() -> List[str]:
+    origins: List[str] = []
+    primary = _normalize_origin(FRONTEND_ORIGIN or PUBLIC_HOSTNAME)
+    if primary:
+        origins.append(primary)
+    extras = [
+        _normalize_origin(item)
+        for item in EXTRA_ALLOWED_ORIGINS.split(",")
+        if item.strip()
+    ]
+    origins.extend([origin for origin in extras if origin])
+    if not origins:
+        origins.append("http://localhost:5173")
+    seen = set()
+    deduped: List[str] = []
+    for origin in origins:
+        if origin and origin not in seen:
+            deduped.append(origin)
+            seen.add(origin)
+    return deduped
+
 
 app = FastAPI(title="Nucizzz IMS", openapi_url=f"{API_BASE}/openapi.json", docs_url=f"{API_BASE}/docs")
 
-# CORS (consenti il tuo frontend)
+# CORS (consenti solo origini esplicite)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # in prod restringi a dominio frontend
+    allow_origins=_build_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

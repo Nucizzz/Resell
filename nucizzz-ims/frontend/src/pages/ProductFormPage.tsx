@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api";
 import { useNavigate, useParams } from "react-router-dom";
+import BarcodeField from "../features/barcode/BarcodeField";
+import { LookupProductDTO } from "../features/barcode/types";
 
 export default function ProductFormPage() {
   const { id } = useParams();
@@ -46,7 +48,28 @@ export default function ProductFormPage() {
   }, [id]);
 
   function set<K extends keyof typeof form>(k: K, v: any) {
-    setForm({ ...form, [k]: v });
+    setForm((prev) => ({ ...prev, [k]: v }));
+  }
+
+  function handleAutofill(dto: LookupProductDTO) {
+    setForm((prev) => {
+      const next = { ...prev };
+      if (dto.barcode) next.barcode = dto.barcode;
+      const setIfEmpty = (key: keyof typeof prev, value?: string) => {
+        if (value && !next[key]) {
+          next[key] = value;
+        }
+      };
+      setIfEmpty("title", dto.name);
+      setIfEmpty("brand", dto.brand);
+      setIfEmpty("description", dto.description);
+      setIfEmpty("size", dto.quantity);
+      setIfEmpty("package_required", dto.packaging);
+      const firstImage = dto.images?.find(Boolean);
+      setIfEmpty("image_url", firstImage);
+      return next;
+    });
+    setMsg(`Campi compilati da ${dto.source ?? "lookup"}`);
   }
 
   async function submit() {
@@ -91,12 +114,9 @@ export default function ProductFormPage() {
           value={form.sku}
           onChange={(e) => set("sku", e.target.value)}
         />
-        <input
-          className="input"
-          placeholder="Barcode"
-          value={form.barcode}
-          onChange={(e) => set("barcode", e.target.value)}
-        />
+        <div className="md:col-span-2">
+          <BarcodeField value={form.barcode} onChange={(v) => set("barcode", v)} onAutofill={handleAutofill} />
+        </div>
         <input
           className="input"
           placeholder="Titolo"

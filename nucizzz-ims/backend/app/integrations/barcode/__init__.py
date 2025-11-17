@@ -1,0 +1,1 @@
+# Barcode data providers namespace

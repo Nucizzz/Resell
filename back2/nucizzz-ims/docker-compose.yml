@@ -21,16 +21,23 @@ services:
     container_name: ims_backend
     restart: always
     env_file: .env
-    ports:
-      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
     command: >
-      bash -c "uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      bash -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"
     volumes:
       - ./backend/app:/app/app
       - uploads_data:/app/app/uploads
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/openapi.json').read()\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
   frontend:
     build:
@@ -38,8 +45,6 @@ services:
       dockerfile: Dockerfile
     container_name: ims_frontend
     restart: always
-    ports:
-      - "5173:5173"
     volumes:
       # Expose built files so Caddy can serve them directly from the host
       - ./frontend/dist:/srv:ro
@@ -57,8 +62,10 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
 
 volumes:
   db_data:
